@@ -61,7 +61,7 @@ Formato:
   // @return [Type] descripción
   ```
 
-- Flujo: cada commit se revisa y aprueba por ambas partes antes de continuar al siguiente.
+- Flujo de trabajo: ver D-18.
 
 ### D-8. Repositorio y entrega
 
@@ -123,6 +123,20 @@ Formato:
 - **Contexto**: al usar Postgres (D-3), la imagen de la app por sí sola no funciona sin base de datos.
 - **Decisión**: el zip de entrega contiene la imagen (`docker save`), el `docker-compose.yml` (que usa `postgres:17` público) y un `INSTALACION.md` que explica paso a paso cómo levantar el servidor (`docker load` + `docker compose up`). No se vuelve a SQLite.
 - **Razón**: Matías prefiere Postgres por mantenibilidad y concurrencia; el costo es un paso documentado para el evaluador.
+
+### D-18. Metodología de desarrollo: commits atómicos con revisión y aprobación mutua
+
+Definida por Matías en el primer mensaje (2026-08-21). Aplica a toda la etapa de desarrollo, sin excepciones:
+
+1. **Un commit = una funcionalidad pequeña.** Cada commit debe poder entenderse y revisarse solo, con su test (TDD: primero el test, luego la implementación mínima que lo hace pasar).
+2. **Claude prepara el commit y se detiene.** Anuncia qué incluye, qué decisiones tomó y cómo verificarlo (comando de test y salida). No avanza al siguiente paso del plan.
+3. **Tiempo de revisión de Matías.** Matías revisa el código con calma y puede modificarlo directamente.
+4. **Revisión de Claude.** Claude revisa también el commit (y los cambios que Matías haya hecho), señala problemas o mejoras.
+5. **Cambios.** Los ajustes derivados de la revisión los hace cualquiera de los dos; se incorporan al mismo commit (amend) o como `fix:` según lo acordado.
+6. **Aprobación mutua explícita.** Solo cuando ambos dicen "aprobado" se continúa con el siguiente commit. Si uno no aprueba, se vuelve al punto 5.
+7. Se repite hasta completar el plan de implementación.
+
+Toda decisión, problema o respuesta que surja durante este ciclo se anota en este archivo (D-n / P-n / Q-n) para la auditoría final de Matías.
 
 ---
 
