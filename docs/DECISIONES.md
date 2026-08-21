@@ -138,6 +138,17 @@ Definida por Matías en el primer mensaje (2026-08-21). Aplica a toda la etapa d
 
 Toda decisión, problema o respuesta que surja durante este ciclo se anota en este archivo (D-n / P-n / Q-n) para la auditoría final de Matías.
 
+### D-19. Plan de implementación en 24 commits atómicos
+
+- **Fuente**: `docs/superpowers/plans/2026-08-21-prueba-zapping.md`. Cada tarea = un commit con su test (TDD) y sigue el ciclo de D-18.
+- **Orden**: base y LFS (1-2) → paquete `stream` (3-8) → config (9) → `auth` (10-13) → `db` (14-15) → `web` (16-20) → composición y middlewares (21) → e2e (22) → Docker (23) → documentación y entrega (24).
+- **Decisiones menores tomadas al planificar**:
+  - Módulo Go `prueba-zapping` (sin dominio): evita depender del usuario de GitHub y es válido para paquetes `internal/`.
+  - Los tests de render de playlist usan strings esperados inline en lugar de golden files: más fáciles de revisar en el commit.
+  - `POST /logout` no exige sesión: si no hay cookie, igual la borra y redirige a `/login` (comportamiento equivalente al de la spec).
+  - El evento SSE `window` incluye `secondsToNextTick` además de `nextTickAt`, para que la cuenta regresiva no dependa de la sincronía de relojes cliente/servidor.
+  - `make` no está instalado en la máquina de desarrollo (Windows); el Makefile queda para Linux/CI y el README documenta los comandos `go`/`docker` directos. La prueba de carga usa `go run github.com/rakyll/hey@latest`.
+
 ---
 
 ## Problemas y hallazgos
