@@ -1,0 +1,12 @@
+# Binarios y artefactos
+/bin/
+/dist/
+*.tar
+*.zip
+
+# Entorno local
+.env
+
+# IDE
+.vscode/
+.idea/
