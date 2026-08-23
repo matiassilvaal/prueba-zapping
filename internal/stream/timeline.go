@@ -94,6 +94,31 @@ func (t *Timeline) publishAt(n uint64) time.Duration {
 	return time.Duration(n/nn)*t.total + t.starts[n%nn]
 }
 
+// Nombres de archivo que deben estar en caché para la secuencia k:
+// gracia (k-1), ventana (k..k+2) y prefetch (k+3), sin duplicados
+//
+// @param [uint64] k: número de secuencia de medios vigente
+//
+// @return [[]string] nombres en orden de índice global
+func (t *Timeline) cacheNames(k uint64) []string {
+	first := k
+	if k > 0 {
+		first = k - 1
+	}
+	last := k + WindowSize // prefetch
+	names := make([]string, 0, last-first+1)
+	seen := make(map[string]struct{}, last-first+1)
+	for n := first; n <= last; n++ {
+		name := t.segment(n).Name
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
+}
+
 // Calcula la ventana vigente en un instante. Función pura: no guarda estado
 //
 // @param [time.Time] epoch: instante en que comenzó el stream
