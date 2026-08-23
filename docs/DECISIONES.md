@@ -303,3 +303,31 @@ Con muchos usuarios haciendo polling a distinto ritmo, la carrera ocurre constan
 **Prefetch (k+3): que el tick nunca dependa del disco.** Sin prefetch, en cada tick el worker leería del disco el segmento que entra (hasta 13 MB) **antes** de publicar el snapshot; con I/O lento el tick se atrasa y los clientes agotan su buffer. Con prefetch, en el tick `k` ya se carga `k+3`, que entrará en la ventana **en el tick siguiente**: cuando llega ese momento, publicar el snapshot es un swap de punteros sin I/O. La lectura de disco ocurre 10 s antes de que alguien la necesite. Beneficio extra: en el arranque se cargan 4 archivos antes del primer snapshot, verificando de paso el pipeline de carga.
 
 Cota resultante: 5 x 13 MB ~ 66 MB fijos, independiente del número de usuarios.
+
+### Q-5. ¿Qué significa "lecturas lock-free" y cómo funcionan `Subscribe`/`broadcast`? (Tarea 7, `service.go`)
+
+**1. Lecturas lock-free (`Snapshot()` y `Segment()`).**
+
+- *Problema*: un escritor (el worker) y miles de lectores (una goroutine por request HTTP) sobre el mismo estado. Tocar la misma variable sin coordinación es una data race.
+- *Solución clásica*: `RWMutex`. Funciona, pero cada request paga tomar/soltar el lock y, mientras el worker escribe, todos los lectores esperan. Con 1000 usuarios es un punto de contención.
+- *Solución adoptada*: `atomic.Pointer` + inmutabilidad. Dos ideas juntas:
+  1. El `*Snapshot` (ventana + playlist renderizada + ETag) se construye completo en privado y **nunca se modifica** después de publicado. Lo mismo el `segmentSet` (map nuevo por tick; los `[]byte` se reutilizan y tampoco se mutan).
+  2. Lo único compartido es el puntero, que se lee/escribe con una instrucción atómica de CPU (`Load`/`Store`). Un lector obtiene el puntero viejo o el nuevo, nunca uno "a medias".
+- *Por qué es seguro sin lock*: un lector que obtuvo el snapshot viejo puede seguir usándolo aunque el worker publique uno nuevo un microsegundo después; el viejo sigue en memoria (el GC lo libera cuando nadie lo referencia) y es inmutable. Analogía: cada tick imprime una edición completa de un periódico y cambia la pila del kiosco; quien ya tiene la edición anterior en la mano no se ve afectado.
+- *Costo*: una lectura de puntero por request, sin espera ni contención, independiente del número de lectores.
+- *Orden de los dos `Store` en `publish`*: primero el set de segmentos, después el snapshot de la playlist. Al revés, un cliente podría leer la playlist nueva antes de que sus archivos estén en caché y recibir un 404 espurio.
+
+**2. `Subscribe` / `broadcast`.**
+
+- Responde a otra pregunta: no "cuál es el estado ahora" sino "avísame cada vez que cambie". Lo usa el hub SSE para empujar eventos al navegador en el instante del tick, sin polling.
+- `Subscribe()` crea un canal con buffer 1, lo registra en `subs` y devuelve el canal + una función de baja.
+- `broadcast(w)` (llamado al final de cada `publish`) recorre los canales con `select { case ch <- w: default: }`. Un envío normal bloquearía hasta que el suscriptor lea; si un suscriptor se colgó o es lento, el worker se quedaría esperándolo y el livestream se congelaría para todos, justo lo que el enunciado prohíbe. Con `default` el envío es instantáneo: si el suscriptor no consumió el evento anterior, pierde este. No importa, porque cada evento trae la ventana completa (no un delta).
+- *Por qué buffer 1*: con buffer 0 el envío solo tendría éxito si el suscriptor está ya bloqueado leyendo en ese instante; cualquier suscriptor ocupado perdería el evento. Con buffer 1 el evento queda guardado hasta que termine lo que estaba haciendo. Más buffer solo acumularía eventos viejos.
+- El mutex `s.mu` protege únicamente el mapa de suscriptores (cambia al conectar/desconectar un SSE), no el hot path de los requests.
+
+| Mecanismo | Quién lo usa | Pregunta que responde | Costo por operación |
+|---|---|---|---|
+| `atomic.Pointer` (snapshot, set) | handlers HTTP, miles de veces por segundo | "¿cuál es el estado ahora?" | una lectura de puntero, sin lock |
+| `Subscribe`/`broadcast` (canales) | hub SSE, pocos suscriptores | "avísame cuando cambie" | un envío no bloqueante por suscriptor, una vez por tick |
+
+El test `TestService_SuscriptorLentoNoBloquea` verifica exactamente esto: un suscriptor que nunca lee termina con 1 evento en el buffer mientras el worker avanzó 3 ticks sin bloquearse.
