@@ -172,6 +172,13 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 
 - 480 MB totales; el mayor ronda 13 MB (`segment1.ts`), el menor ~2 MB (`segment63.ts`). Condiciona D-12 y la cota de RAM de D-13.
 
+### P-4. Sin compilador C en Windows: `-race` se ejecuta en Docker
+
+- La máquina de desarrollo no tiene gcc/clang y el race detector de Go requiere cgo. `go test -race` falla nativo.
+- **Solución adoptada (2026-08-23)**: ciclo rápido local con `go test ./...` (sin `-race`) y, antes de cerrar cada tarea, `go test -race ./...` dentro del contenedor `golang:1.26` con el código montado y un volumen `go-cache-zapping` para la caché de módulos:
+  `docker run --rm -v "<repo>:/src" -w /src -v go-cache-zapping:/go golang:1.26 go test -race ./...`
+- Docker Desktop debe estar levantado; el primer arranque en frío tardó varios minutos y hubo que reiniciar el engine una vez.
+
 ---
 
 ## Preguntas abiertas y respuestas
@@ -184,3 +191,115 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 
 - **Respuesta**: sí, sin cambios de código. `N` y las duraciones se obtienen al parsear `segment.m3u8` en el arranque; toda la aritmética (`n % N`, acumulados, `TARGETDURATION` = techo de la duración máxima) trabaja sobre esa lista.
 - **Supuestos que sí quedan fijos**: (1) `N >= 3` (tamaño de ventana), validado al arrancar; (2) los segmentos son PTS-continuos entre sí, de modo que la única discontinuidad es el cruce final -> inicio. Mezclar clips de distinto origen requeriría discontinuidad entre cada par y **no** está contemplado.
+
+### Q-3. ¿Cómo se ve la playlist en vivo en distintos momentos? (ejemplos con los 64 segmentos reales)
+
+Tomando `t` como segundos desde el epoch (arranque del proceso). El player solo ve estas ventanas de 3; nunca ve el catálogo completo.
+
+**t = 0 s, secuencia 0 (arranque):**
+
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXTINF:10.000000,
+segment0.ts
+#EXTINF:10.000000,
+segment1.ts
+#EXTINF:10.000000,
+segment2.ts
+```
+
+**t = 10 s, secuencia 1:** salió `segment0`, entró `segment3`.
+
+```m3u8
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXTINF:10.000000,
+segment1.ts
+#EXTINF:10.000000,
+segment2.ts
+#EXTINF:10.000000,
+segment3.ts
+```
+
+**t = 620 s, secuencia 62:** el último segmento es corto y ya asoma el cruce con su tag.
+
+```m3u8
+#EXT-X-MEDIA-SEQUENCE:62
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXTINF:10.000000,
+segment62.ts
+#EXTINF:4.566667,
+segment63.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000000,
+segment0.ts
+```
+
+**t = 630 s, secuencia 63:** segmento corto al frente; este tick dura solo 4.566667 s.
+
+```m3u8
+#EXT-X-MEDIA-SEQUENCE:63
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXTINF:4.566667,
+segment63.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000000,
+segment0.ts
+#EXTINF:10.000000,
+segment1.ts
+```
+
+**t = 634.57 s, secuencia 64:** ya dio la vuelta. `segment0` va al frente con el tag delante; el tag sigue en la playlist, así que `DISCONTINUITY-SEQUENCE` aún es 0.
+
+```m3u8
+#EXT-X-MEDIA-SEQUENCE:64
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000000,
+segment0.ts
+#EXTINF:10.000000,
+segment1.ts
+#EXTINF:10.000000,
+segment2.ts
+```
+
+**t = 644.57 s, secuencia 65:** el tag salió de la ventana → `DISCONTINUITY-SEQUENCE` pasa a 1 (RFC 8216 §4.3.3.3). `MEDIA-SEQUENCE` sigue creciendo, nunca vuelve a 0.
+
+```m3u8
+#EXT-X-MEDIA-SEQUENCE:65
+#EXT-X-DISCONTINUITY-SEQUENCE:1
+#EXTINF:10.000000,
+segment1.ts
+#EXTINF:10.000000,
+segment2.ts
+#EXTINF:10.000000,
+segment3.ts
+```
+
+En la segunda vuelta el patrón se repite con secuencias 126-129 y `DISCONTINUITY-SEQUENCE` pasando de 1 a 2, indefinidamente. (Las cabeceras `#EXTM3U`, `#EXT-X-VERSION:3` y `#EXT-X-TARGETDURATION:10` se omiten en los ejemplos intermedios por brevedad; siempre están.)
+
+### Q-4. ¿Para qué hay un segmento de gracia y uno de prefetch en la caché? (Tarea 6)
+
+Para la secuencia `k`, la caché en RAM contiene 5 archivos:
+
+| n | rol | por qué |
+|---|---|---|
+| k-1 | gracia | clientes que aún tienen la playlist anterior |
+| k, k+1, k+2 | ventana | lo que la playlist anuncia |
+| k+3 | prefetch | entra en el próximo tick sin tocar disco |
+
+**Gracia (k-1): evitar 404 a clientes un tick atrasados.** El player no descarga playlist y segmentos en el mismo instante:
+
+1. t = 19.9 s: HLS.js pide la playlist y recibe `[seg1, seg2, seg3]`.
+2. t = 20.0 s: tick; la ventana pasa a `[seg2, seg3, seg4]`.
+3. t = 20.1 s: HLS.js pide `seg1.ts`, que acaba de leer en la playlist. Sin gracia responderíamos 404 y el player entra en error fatal de red.
+
+Con muchos usuarios haciendo polling a distinto ritmo, la carrera ocurre constantemente. El RFC 8216 §6.2.2 exige que un segmento removido siga disponible "duración del segmento + duración de la playlist más larga" (>= 10 s + 30 s). Se eligió conservar **1** segmento (10 s) porque HLS.js pide el segmento milisegundos después de leer la playlist, y así la cota de RAM se mantiene baja. Ser 100 % estricto con el RFC implicaría 4 de gracia (~105 MB); es cambiar un número en `cacheNames` si se decide.
+
+**Prefetch (k+3): que el tick nunca dependa del disco.** Sin prefetch, en cada tick el worker leería del disco el segmento que entra (hasta 13 MB) **antes** de publicar el snapshot; con I/O lento el tick se atrasa y los clientes agotan su buffer. Con prefetch, en el tick `k` ya se carga `k+3`, que entrará en la ventana **en el tick siguiente**: cuando llega ese momento, publicar el snapshot es un swap de punteros sin I/O. La lectura de disco ocurre 10 s antes de que alguien la necesite. Beneficio extra: en el arranque se cargan 4 archivos antes del primer snapshot, verificando de paso el pipeline de carga.
+
+Cota resultante: 5 x 13 MB ~ 66 MB fijos, independiente del número de usuarios.
