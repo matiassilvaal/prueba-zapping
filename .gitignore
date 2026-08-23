@@ -11,3 +11,5 @@
 .vscode/
 .idea/
 *.exe
+segments/
+/Prueba.md

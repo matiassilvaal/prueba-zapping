@@ -149,6 +149,13 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
   - El evento SSE `window` incluye `secondsToNextTick` además de `nextTickAt`, para que la cuenta regresiva no dependa de la sincronía de relojes cliente/servidor.
   - `make` no está instalado en la máquina de desarrollo (Windows); el Makefile queda para Linux/CI y el README documenta los comandos `go`/`docker` directos. La prueba de carga usa `go run github.com/rakyll/hey@latest`.
 
+### D-20. Los segmentos de video no se versionan en GitHub (reemplaza la parte de repo de D-12)
+
+- **Contexto**: D-12 proponía versionar los `.ts` con Git LFS. Al ejecutar la Tarea 2 del plan, Matías decidió (2026-08-23) que no es necesario: quien revisa ya tiene los segmentos y puede copiarlos a `segments/`; además el push habría consumido ~480 MB de la cuota LFS.
+- **Decisión**: la carpeta `segments/` completa (incluido `segment.m3u8`, que es el catálogo de entrada con nombres y duraciones, no la playlist en vivo) queda fuera del repo e ignorada en `.gitignore`. Quien ejecute el código desde el repo debe aportar la carpeta `segments/` provista. La imagen Docker sí incluye los segmentos (esa parte de D-12 sigue vigente). `Prueba.md` (el enunciado) tampoco va al repo.
+- **Aclaración conceptual** (duda de Matías): `segments/segment.m3u8` es input estático que el servidor lee una vez al arrancar; la playlist en vivo (3 segmentos, MEDIA-SEQUENCE, DISCONTINUITY) se genera en memoria en cada tick y se sirve en `/stream/playlist.m3u8`. El archivo original nunca se modifica.
+- **Impacto**: el commit LFS de la Tarea 2 se deshizo antes de existir en ningún remoto; se eliminó la configuración y los objetos LFS locales. El README (Tarea 24) documentará: "copiar la carpeta `segments/` provista antes de ejecutar o construir la imagen". Los tests que usan el manifiesto real se saltan si la carpeta no está. La Tarea 2 del plan queda reemplazada por este commit.
+
 ---
 
 ## Problemas y hallazgos
