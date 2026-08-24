@@ -47,7 +47,9 @@ func (s *UserStore) Create(ctx context.Context, name, email string, passwordHash
 	return u, nil
 }
 
-// Busca un usuario por email
+// Busca un usuario por email. Compara sobre lower(email) para usar el índice
+// funcional de la migración 0002 y encontrar también filas insertadas sin la
+// normalización de la app
 //
 // @param [context.Context] ctx: contexto
 // @param [string] email: email normalizado
@@ -57,7 +59,7 @@ func (s *UserStore) Create(ctx context.Context, name, email string, passwordHash
 func (s *UserStore) FindByEmail(ctx context.Context, email string) (auth.User, error) {
 	var u auth.User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, email, password_hash, created_at FROM users WHERE email = $1`, email).
+		`SELECT id, name, email, password_hash, created_at FROM users WHERE lower(email) = $1`, email).
 		Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.User{}, auth.ErrNotFound
