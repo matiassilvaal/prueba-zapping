@@ -36,7 +36,7 @@ func (h *handler) servePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("ETag", snap.ETag)
 	if r.Header.Get("If-None-Match") == snap.ETag {
 		w.WriteHeader(http.StatusNotModified)
@@ -58,7 +58,7 @@ func (h *handler) serveSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "video/mp2t")
-	w.Header().Set("Cache-Control", "public, max-age=3600, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=3600, immutable")
 	w.Header().Set("ETag", strconv.Quote(name))
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
 }

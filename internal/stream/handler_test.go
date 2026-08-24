@@ -39,7 +39,7 @@ func TestHandler_Playlist(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/vnd.apple.mpegurl" {
 		t.Errorf("content-type %q", ct)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+	if cc := rec.Header().Get("Cache-Control"); cc != "private, no-cache" {
 		t.Errorf("cache-control %q", cc)
 	}
 	if rec.Header().Get("ETag") != `"0"` {
@@ -64,7 +64,7 @@ func TestHandler_Segmento(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "video/mp2t" {
 		t.Errorf("content-type %q", ct)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=3600, immutable" {
+	if cc := rec.Header().Get("Cache-Control"); cc != "private, max-age=3600, immutable" {
 		t.Errorf("cache-control %q", cc)
 	}
 	rec = httptest.NewRecorder()
