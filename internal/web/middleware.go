@@ -51,7 +51,9 @@ func (s *statusWriter) Flush() {
 // @return [http.ResponseWriter] writer envuelto
 func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
-// Middleware que convierte un panic en 500 y lo registra
+// Middleware que convierte un panic en 500 y lo registra. Si la respuesta ya
+// se inició (p. ej. SSE) no escribe nada encima; http.ErrAbortHandler se
+// re-lanza porque es el mecanismo estándar para abortar una respuesta
 //
 // @param [*slog.Logger] logger: logger
 //
@@ -59,13 +61,21 @@ func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sw := &statusWriter{ResponseWriter: w}
 			defer func() {
-				if rec := recover(); rec != nil {
-					logger.Error("panic en handler", "error", rec, "path", r.URL.Path, "stack", string(debug.Stack()))
-					http.Error(w, "Error interno", http.StatusInternalServerError)
+				rec := recover()
+				if rec == nil {
+					return
+				}
+				if rec == http.ErrAbortHandler {
+					panic(rec)
+				}
+				logger.Error("panic en handler", "error", rec, "path", r.URL.Path, "stack", string(debug.Stack()))
+				if sw.status == 0 {
+					http.Error(sw, "Error interno", http.StatusInternalServerError)
 				}
 			}()
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(sw, r)
 		})
 	}
 }
@@ -81,8 +91,12 @@ func Logging(logger *slog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			sw := &statusWriter{ResponseWriter: w}
 			next.ServeHTTP(sw, r)
+			status := sw.status
+			if status == 0 {
+				status = http.StatusOK // el handler no escribió: net/http responde 200
+			}
 			logger.Info("request",
-				"method", r.Method, "path", r.URL.Path, "status", sw.status,
+				"method", r.Method, "path", r.URL.Path, "status", status,
 				"bytes", sw.bytes, "duration", time.Since(start), "remote", r.RemoteAddr)
 		})
 	}

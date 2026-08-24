@@ -160,7 +160,9 @@ func (s *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
 // @param [*http.Request] r: request
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	if err := s.deps.Ready(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		// El detalle (puede incluir el DSN de la DB) va al log, no al cliente.
+		s.deps.Logger.Warn("healthz: no listo", "error", err)
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

@@ -250,3 +250,16 @@ func TestCookieUsaTTLDelServicioAuth(t *testing.T) {
 		t.Fatalf("Max-Age de la cookie %d; el TTL del servicio es %v", c.MaxAge, a.TTL())
 	}
 }
+
+func TestHealthz_NoFiltraElError(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.deps.Ready = func(context.Context) error { return errors.New("dial tcp 10.0.0.5:5432: usuario zapping") }
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != "not ready" {
+		t.Fatalf("healthz no debe filtrar detalles internos (DSN, host): %q", body)
+	}
+}
