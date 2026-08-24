@@ -12,18 +12,29 @@ import (
 
 func TestCacheNames(t *testing.T) {
 	tl := testTimeline(t) // a b c d
+	tl6, err := NewTimeline([]Segment{
+		{"s0.ts", 10 * time.Second}, {"s1.ts", 10 * time.Second}, {"s2.ts", 10 * time.Second},
+		{"s3.ts", 10 * time.Second}, {"s4.ts", 10 * time.Second}, {"s5.ts", 10 * time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
-		k    uint64
-		want []string
+		tl           *Timeline
+		k            uint64
+		wantRequired []string
+		wantPrefetch []string
 	}{
-		{0, []string{"a.ts", "b.ts", "c.ts", "d.ts"}}, // sin gracia en k=0; prefetch n=3
-		{1, []string{"a.ts", "b.ts", "c.ts", "d.ts"}}, // n=0..4 → a b c d a (dedupe)
-		{3, []string{"c.ts", "d.ts", "a.ts", "b.ts"}}, // n=2..6
-		{4, []string{"d.ts", "a.ts", "b.ts", "c.ts"}}, // n=3..7
+		{tl, 0, []string{"a.ts", "b.ts", "c.ts"}, []string{"d.ts"}},               // sin gracia en k=0; prefetch n=3
+		{tl, 1, []string{"a.ts", "b.ts", "c.ts", "d.ts"}, nil},                    // n=0..3; prefetch n=4 duplica a.ts
+		{tl, 3, []string{"c.ts", "d.ts", "a.ts", "b.ts"}, nil},                    // n=2..5; prefetch n=6 duplica c.ts
+		{tl, 4, []string{"d.ts", "a.ts", "b.ts", "c.ts"}, nil},                    // n=3..6; prefetch n=7 duplica d.ts
+		{tl6, 2, []string{"s1.ts", "s2.ts", "s3.ts", "s4.ts"}, []string{"s5.ts"}}, // n=1..4 + prefetch n=5
 	}
 	for _, tc := range cases {
-		if got := tl.cacheNames(tc.k); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("k=%d: got %v, want %v", tc.k, got, tc.want)
+		required, prefetch := tc.tl.cacheNames(tc.k)
+		if !reflect.DeepEqual(required, tc.wantRequired) || !reflect.DeepEqual(prefetch, tc.wantPrefetch) {
+			t.Errorf("k=%d: got (%v, %v), want (%v, %v)", tc.k, required, prefetch, tc.wantRequired, tc.wantPrefetch)
 		}
 	}
 }
@@ -34,11 +45,11 @@ func TestBuildSegmentSet_ReutilizaYEvicta(t *testing.T) {
 		calls[name]++
 		return []byte(name), nil
 	}
-	s1, err := buildSegmentSet(nil, []string{"a.ts", "b.ts"}, load)
+	s1, _, err := buildSegmentSet(nil, []string{"a.ts", "b.ts"}, nil, load)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2, err := buildSegmentSet(s1, []string{"b.ts", "c.ts"}, load)
+	s2, _, err := buildSegmentSet(s1, []string{"b.ts", "c.ts"}, nil, load)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,11 +67,34 @@ func TestBuildSegmentSet_ReutilizaYEvicta(t *testing.T) {
 	}
 }
 
-func TestBuildSegmentSet_PropagaError(t *testing.T) {
+func TestBuildSegmentSet_PropagaErrorObligatorio(t *testing.T) {
 	boom := errors.New("disco roto")
-	_, err := buildSegmentSet(nil, []string{"a.ts"}, func(string) ([]byte, error) { return nil, boom })
+	_, _, err := buildSegmentSet(nil, []string{"a.ts"}, nil, func(string) ([]byte, error) { return nil, boom })
 	if !errors.Is(err, boom) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestBuildSegmentSet_OpcionalBestEffort(t *testing.T) {
+	boom := errors.New("disco roto")
+	load := func(name string) ([]byte, error) {
+		if name == "c.ts" {
+			return nil, boom
+		}
+		return []byte(name), nil
+	}
+	set, skipped, err := buildSegmentSet(nil, []string{"a.ts"}, []string{"b.ts", "c.ts"}, load)
+	if err != nil {
+		t.Fatalf("un opcional fallido no debía impedir el set: %v", err)
+	}
+	if !reflect.DeepEqual(skipped, []string{"c.ts"}) {
+		t.Fatalf("skipped: %v", skipped)
+	}
+	if _, ok := set.get("b.ts"); !ok {
+		t.Fatal("b.ts opcional debía cargarse")
+	}
+	if _, ok := set.get("c.ts"); ok {
+		t.Fatal("c.ts no debía estar en el set")
 	}
 }
 

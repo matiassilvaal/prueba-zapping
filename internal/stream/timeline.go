@@ -94,29 +94,35 @@ func (t *Timeline) publishAt(n uint64) time.Duration {
 	return time.Duration(n/nn)*t.total + t.starts[n%nn]
 }
 
-// Nombres de archivo que deben estar en caché para la secuencia k:
-// gracia (k-1), ventana (k..k+2) y prefetch (k+3), sin duplicados
+// Nombres de archivo que deben estar en caché para la secuencia k.
+// required: gracia (k-1) y ventana (k..k+2), sin los cuales no se publica.
+// prefetch: k+3, que recién se necesita en el tick siguiente (best-effort)
 //
 // @param [uint64] k: número de secuencia de medios vigente
 //
-// @return [[]string] nombres en orden de índice global
-func (t *Timeline) cacheNames(k uint64) []string {
+// @return [[]string] required: nombres obligatorios en orden de índice global
+// @return [[]string] prefetch: nombre a precargar (vacío si duplica uno obligatorio)
+func (t *Timeline) cacheNames(k uint64) (required, prefetch []string) {
 	first := k
 	if k > 0 {
 		first = k - 1
 	}
-	last := k + WindowSize // prefetch
-	names := make([]string, 0, last-first+1)
-	seen := make(map[string]struct{}, last-first+1)
+	last := k + WindowSize - 1
+	seen := make(map[string]struct{}, last-first+2)
 	for n := first; n <= last; n++ {
 		name := t.segment(n).Name
 		if _, dup := seen[name]; dup {
 			continue
 		}
 		seen[name] = struct{}{}
-		names = append(names, name)
+		required = append(required, name)
 	}
-	return names
+	if name := t.segment(last + 1).Name; name != "" {
+		if _, dup := seen[name]; !dup {
+			prefetch = append(prefetch, name)
+		}
+	}
+	return required, prefetch
 }
 
 // Calcula la ventana vigente en un instante. Función pura: no guarda estado

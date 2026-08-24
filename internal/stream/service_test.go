@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -146,5 +147,55 @@ func TestService_SuscriptorLentoNoBloquea(t *testing.T) {
 	}
 	if len(slow) != 1 {
 		t.Fatalf("el canal lento debía conservar solo un evento, tiene %d", len(slow))
+	}
+}
+
+func TestService_PrefetchFallidoNoBloqueaElTick(t *testing.T) {
+	tl := testTimeline(t) // a b c d (10,10,10,4)
+	clock := newFakeClock(time.Unix(0, 0))
+	var dFails atomic.Bool
+	dFails.Store(true)
+	attempts := make(chan string, 8)
+	loader := func(name string) ([]byte, error) {
+		if name == "d.ts" && dFails.Load() {
+			attempts <- name
+			return nil, errors.New("disco")
+		}
+		return []byte("bytes de " + name), nil
+	}
+	svc := NewService(tl, loader, clock, quietLogger())
+	events, cancel := svc.Subscribe()
+	defer cancel()
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go svc.Run(ctx)
+
+	// k=0: el prefetch de d.ts falla pero la ventana a b c se publica igual.
+	w := waitWindow(t, events)
+	if w.MediaSequence != 0 {
+		t.Fatalf("primer tick: %+v", w)
+	}
+	if _, ok := svc.Segment("d.ts"); ok {
+		t.Fatal("d.ts no debía estar en caché: su prefetch falló")
+	}
+	<-attempts // intento de prefetch en k=0
+
+	// k=1: d.ts pasa a ser obligatorio y sigue fallando → se conserva k=0.
+	clock.Advance(10 * time.Second)
+	select {
+	case <-attempts:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no se intentó cargar d.ts en k=1")
+	}
+	if seq := svc.Snapshot().Window.MediaSequence; seq != 0 {
+		t.Fatalf("debía conservarse la ventana k=0, hay k=%d", seq)
+	}
+
+	// El disco se recupera: el siguiente tick publica normalmente.
+	dFails.Store(false)
+	clock.Advance(10 * time.Second) // k=2
+	w = waitWindow(t, events)
+	if w.MediaSequence != 2 {
+		t.Fatalf("recuperación: %+v", w)
 	}
 }

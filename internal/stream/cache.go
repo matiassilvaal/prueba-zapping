@@ -40,34 +40,59 @@ type segmentSet struct {
 	data map[string][]byte
 }
 
-// Construye un set con exactamente los nombres indicados, reutilizando los
-// bytes ya presentes en prev y cargando solo los faltantes
+// Construye un set con los nombres indicados, reutilizando los bytes ya
+// presentes en prev y cargando solo los faltantes. Los required son
+// obligatorios: si uno falla no se construye el set. Los optional se cargan
+// best-effort: un fallo solo los deja fuera y se reporta en skipped
 //
 // @param [*segmentSet] prev: set anterior (puede ser nil)
-// @param [[]string] names: nombres que debe contener el set nuevo
+// @param [[]string] required: nombres que el set debe contener sí o sí
+// @param [[]string] optional: nombres deseables (prefetch)
 // @param [SegmentLoader] load: origen de los bytes faltantes
 //
 // @return [*segmentSet] set nuevo
-// @return [error] si alguna carga falla (no se publica set parcial)
-func buildSegmentSet(prev *segmentSet, names []string, load SegmentLoader) (*segmentSet, error) {
-	data := make(map[string][]byte, len(names))
-	for _, name := range names {
-		if _, ok := data[name]; ok {
-			continue
+// @return [[]string] skipped: opcionales que no se pudieron cargar
+// @return [error] si falla un required (no se publica set parcial)
+func buildSegmentSet(prev *segmentSet, required, optional []string, load SegmentLoader) (*segmentSet, []string, error) {
+	data := make(map[string][]byte, len(required)+len(optional))
+	for _, name := range required {
+		if err := loadInto(data, prev, name, load); err != nil {
+			return nil, nil, fmt.Errorf("stream: cargar segmento %q: %w", name, err)
 		}
-		if prev != nil {
-			if b, ok := prev.data[name]; ok {
-				data[name] = b
-				continue
-			}
-		}
-		b, err := load(name)
-		if err != nil {
-			return nil, fmt.Errorf("stream: cargar segmento %q: %w", name, err)
-		}
-		data[name] = b
 	}
-	return &segmentSet{data: data}, nil
+	var skipped []string
+	for _, name := range optional {
+		if err := loadInto(data, prev, name, load); err != nil {
+			skipped = append(skipped, name)
+		}
+	}
+	return &segmentSet{data: data}, skipped, nil
+}
+
+// Copia un segmento al mapa desde prev o desde el loader; omite duplicados
+//
+// @param [map[string][]byte] data: destino
+// @param [*segmentSet] prev: set anterior (puede ser nil)
+// @param [string] name: nombre de archivo
+// @param [SegmentLoader] load: origen de los bytes
+//
+// @return [error] error del loader
+func loadInto(data map[string][]byte, prev *segmentSet, name string, load SegmentLoader) error {
+	if _, ok := data[name]; ok {
+		return nil
+	}
+	if prev != nil {
+		if b, ok := prev.data[name]; ok {
+			data[name] = b
+			return nil
+		}
+	}
+	b, err := load(name)
+	if err != nil {
+		return err
+	}
+	data[name] = b
+	return nil
 }
 
 // Busca un segmento en el set

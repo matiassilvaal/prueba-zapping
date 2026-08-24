@@ -104,15 +104,19 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 // Construye la caché y el snapshot de una ventana y los publica atómicamente;
-// luego notifica a los suscriptores
+// luego notifica a los suscriptores. Un prefetch fallido no bloquea el tick
 //
 // @param [Window] w: ventana a publicar
 //
-// @return [error] si falta algún segmento (no se publica nada)
+// @return [error] si falta un segmento obligatorio (no se publica nada)
 func (s *Service) publish(w Window) error {
-	set, err := buildSegmentSet(s.set.Load(), s.timeline.cacheNames(w.MediaSequence), s.load)
+	required, prefetch := s.timeline.cacheNames(w.MediaSequence)
+	set, skipped, err := buildSegmentSet(s.set.Load(), required, prefetch, s.load)
 	if err != nil {
 		return err
+	}
+	for _, name := range skipped {
+		s.logger.Warn("prefetch fallido; se reintentará en el próximo tick", "segment", name)
 	}
 	snap := &Snapshot{
 		Window:   w,
