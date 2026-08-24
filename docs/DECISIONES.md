@@ -156,6 +156,12 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 - **Aclaración conceptual** (duda de Matías): `segments/segment.m3u8` es input estático que el servidor lee una vez al arrancar; la playlist en vivo (3 segmentos, MEDIA-SEQUENCE, DISCONTINUITY) se genera en memoria en cada tick y se sirve en `/stream/playlist.m3u8`. El archivo original nunca se modifica.
 - **Impacto**: el commit LFS de la Tarea 2 se deshizo antes de existir en ningún remoto; se eliminó la configuración y los objetos LFS locales. El README (Tarea 24) documentará: "copiar la carpeta `segments/` provista antes de ejecutar o construir la imagen". Los tests que usan el manifiesto real se saltan si la carpeta no está. La Tarea 2 del plan queda reemplazada por este commit.
 
+### D-21. HLS.js embebido en el binario, no desde CDN (ajusta D-4)
+
+- **Contexto**: D-4 permitía cargar HLS.js desde un CDN. Al revisar la Tarea 20, Matías señaló que el enunciado exige tener HLS.js o Video.js en el proyecto, y que la entrega debe funcionar sin depender de terceros en tiempo de ejecución.
+- **Decisión** (2026-08-23): `hls.min.js` v1.7.1 (Apache-2.0) se copia a `internal/web/static/vendor/` junto con su licencia y un README con versión y origen; se sirve desde `/static/vendor/hls.min.js` y viaja embebido en el binario vía `embed`. El test del player verifica tanto la referencia local como que el archivo se sirva.
+- **Razón**: imagen 100 % autocontenida (funciona sin internet), versión fija y reproducible, sin riesgo por caídas o bloqueos del CDN. Costo: +600 KB en el binario.
+
 ---
 
 ## Problemas y hallazgos

@@ -190,8 +190,13 @@ func TestPlayerYStreamProtegidos(t *testing.T) {
 	req.AddCookie(c)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "hls.js") || !strings.Contains(rec.Body.String(), `id="video"`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `src="/static/vendor/hls.min.js"`) || !strings.Contains(rec.Body.String(), `id="video"`) {
 		t.Fatalf("player con sesión: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/static/vendor/hls.min.js", nil))
+	if rec.Code != 200 || rec.Body.Len() < 100_000 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/javascript") {
+		t.Fatalf("hls.min.js embebido: status %d bytes %d ct %q", rec.Code, rec.Body.Len(), rec.Header().Get("Content-Type"))
 	}
 	req = httptest.NewRequest("GET", "/stream/playlist.m3u8", nil)
 	req.AddCookie(c)
