@@ -1,0 +1,172 @@
+# Prueba Zapping — Livestreaming HLS simulado en Go
+
+Servicio en Go que genera un livestreaming HLS a partir de segmentos de video
+pregrabados, con registro/login de usuarios en PostgreSQL y un player web
+protegido. Solo usuarios registrados pueden ver el stream. Se entrega como
+imagen Docker + `docker-compose.yml` (ver `INSTALACION.md`).
+
+- Documentación de diseño: `docs/superpowers/specs/2026-08-21-prueba-zapping-design.md`
+- Bitácora de decisiones, problemas y respuestas: `docs/DECISIONES.md`
+
+## Arquitectura
+
+Un solo binario (`cmd/server`) compone paquetes independientes:
+
+```
+cmd/server          composición: config -> db -> stream -> web -> http.Server
+internal/config     variables de entorno, validación, defaults
+internal/stream     el "microservicio" HLS; solo depende de la stdlib
+internal/auth       usuarios, sesiones server-side, middleware
+internal/db         pool pgx, migraciones embebidas, stores Postgres
+internal/web        páginas html/template, assets embebidos, SSE
+migrations/         SQL versionado, embebido en el binario
+```
+
+Reglas de dependencia: `stream` no importa `auth`, `web` ni `db`; expone
+`Snapshot()`, `Segment(name)`, `Subscribe()` y un `http.Handler`. La
+autenticación envuelve al handler del stream **desde fuera** (en `cmd/server`),
+de modo que el generador del livestream no sabe que existen usuarios: extraerlo
+a su propio contenedor es copiar el paquete y un `main` mínimo.
+
+## Cómo funciona el livestream
+
+El manifiesto fuente (`segments/segment.m3u8`) se parsea una vez al arrancar:
+nombres y duraciones (63 segmentos de 10 s + 1 de 4.566667 s en los datos
+provistos; el código funciona con cualquier N >= 3). Sobre esa lista se define
+un **reloj virtual**: el segmento global `n` (que crece sin tope; el archivo es
+`n % N`) se publica en el instante `publishAt(n) = (n / N)·total + inicio(n % N)`.
+
+La ventana vigente es una **función pura** de `(epoch, ahora)`: sin estado
+mutable, sin deriva acumulada, con reinicios coherentes y testeable con un
+reloj falso. Cada tick dura lo que dura el segmento que sale (10 s normalmente,
+4.566667 s una vez por vuelta), así el reloj de medios y el de pared nunca se
+desincronizan y el stream continúa indefinidamente.
+
+- `EXT-X-MEDIA-SEQUENCE` crece en 1 por cada segmento removido y nunca se reinicia.
+- Al dar la vuelta (último → primero) los PTS saltan hacia atrás, por eso se
+  emite `#EXT-X-DISCONTINUITY` antes del primer segmento, y cuando ese tag sale
+  de la ventana se incrementa `#EXT-X-DISCONTINUITY-SEQUENCE` (RFC 8216 §4.3.3.3).
+
+Ejemplo de la playlist en el cruce (secuencia 63, tick corto):
+
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:63
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXTINF:4.566667,
+segment63.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000000,
+segment0.ts
+#EXTINF:10.000000,
+segment1.ts
+```
+
+El worker (una goroutine) no conoce a los usuarios: publica cada tick un
+snapshot inmutable y duerme hasta el próximo. La concurrencia de usuarios la
+maneja exclusivamente el servidor HTTP.
+
+## Caché y concurrencia
+
+- **Playlist**: se renderiza una vez por tick y se publica en un
+  `atomic.Pointer`; cada request la lee sin locks ni allocs. `Cache-Control:
+  no-cache` + `ETag` (= secuencia) para respuestas `304`.
+- **Segmentos**: caché en RAM acotada a `[k-1, k+3]` — 1 de gracia (el recién
+  removido sigue disponible para clientes con la playlist anterior), la ventana
+  de 3, y 1 de prefetch (el tick nunca espera al disco). Cota fija ~66 MB,
+  independiente del número de usuarios. Fuera de ese set → `404`: es un
+  livestream, todos ven la misma ventana. Headers `public, max-age=3600,
+  immutable` + `ETag`.
+- **Sesiones**: cookie `HttpOnly` con token aleatorio; en la DB solo se guarda
+  su SHA-256. Caché en proceso con TTL 30 s y tope de entradas: validar cada
+  request del stream cuesta un hash + una lectura de mapa, no una consulta SQL.
+- **SSE**: hub con envío no bloqueante por cliente (los lentos pierden eventos,
+  jamás frenan al worker). Espectadores = conexiones SSE activas.
+
+## Desviación consciente del RFC 8216
+
+El §6.2.2 pide conservar >= 3 × target duration al remover un segmento (implica
+ventana de 4); el enunciado exige exactamente 3 segmentos por playlist, y eso
+es lo que se implementa. HLS.js lo reproduce sin problemas. El mismo RFC pide
+mantener disponible el segmento removido: eso sí se cumple con el segmento de
+gracia.
+
+## Ejecutar en desarrollo
+
+Requisitos: Go 1.26+, Docker. Los comandos son para bash (Git Bash en Windows,
+Linux o macOS). Antes de nada, copiar la carpeta `segments/` provista (los
+`.ts` y `segment.m3u8`) a la raíz del repo — no se versiona (ver D-20).
+
+```bash
+# Base de datos de desarrollo (host 5433, para no chocar con un Postgres local)
+docker compose -f docker-compose.dev.yml up -d db
+
+# Servidor local
+DATABASE_URL='postgres://zapping:zapping@localhost:5433/zapping?sslmode=disable' \
+SEGMENTS_DIR=./segments go run ./cmd/server
+# abrir http://localhost:8080
+
+# Todo dentro de Docker (build + segmentos montados como volumen)
+docker compose -f docker-compose.dev.yml up --build -d
+```
+
+Variables de entorno (todas opcionales salvo `DATABASE_URL`):
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `PORT` | `8080` | puerto HTTP |
+| `DATABASE_URL` | — | DSN de PostgreSQL (obligatoria) |
+| `DB_MAX_CONNS` | `10` | tamaño del pool |
+| `SEGMENTS_DIR` | `/data/segments` | carpeta con los `.ts` y el manifiesto |
+| `SEGMENTS_MANIFEST` | `segment.m3u8` | manifiesto fuente dentro de `SEGMENTS_DIR` |
+| `SESSION_TTL` | `24h` | duración de la sesión |
+| `COOKIE_SECURE` | `false` | flag `Secure` de la cookie (activar detrás de TLS) |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+
+### Tests
+
+```bash
+go test ./...                      # unitarios + e2e (sin dependencias externas)
+
+# Integración con Postgres real (usa el contenedor de desarrollo)
+TEST_DATABASE_URL='postgres://zapping:zapping@localhost:5433/zapping?sslmode=disable' go test ./...
+
+# Con race detector (requiere cgo; en Windows sin gcc se corre dentro de Docker)
+docker run --rm -v "$PWD:/src" -w /src golang:1.26 go test -race ./...
+```
+
+## Prueba de carga
+
+Con la imagen de entrega corriendo (`docker compose up -d`), una sesión válida
+y [hey](https://github.com/rakyll/hey):
+
+```bash
+go run github.com/rakyll/hey@latest -c 200 -z 30s \
+  -H "Cookie: session=<token>" http://localhost:8080/stream/playlist.m3u8
+```
+
+Resultado real (2026-08-24, Docker Desktop sobre Windows, 200 conexiones
+concurrentes durante 30 s):
+
+```
+Requests/sec: 9489.04
+Total:        284 820 respuestas, todas 200
+Latencia:     p50 19 ms · p90 30 ms · p95 36 ms · p99 53 ms · max 147 ms
+```
+
+El worker publicó sus ticks sin retraso durante toda la prueba: generar la
+playlist no depende de cuántos clientes la pidan.
+
+## Construir y empaquetar la entrega
+
+```bash
+docker build -t prueba-zapping:latest .          # requiere ./segments presente
+mkdir -p dist
+docker save prueba-zapping:latest -o dist/prueba-zapping.tar
+cp docker-compose.yml INSTALACION.md dist/
+# comprimir dist/ y enviar; el receptor sigue INSTALACION.md
+```
+
+Con `make` disponible: `make docker-save` hace build + save.

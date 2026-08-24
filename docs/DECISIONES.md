@@ -192,6 +192,12 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 - Al levantar `docker-compose.dev.yml` con `5432:5432`, los tests de integración fallaban con "la autentificación password falló para el usuario zapping": la máquina tiene un PostgreSQL local (12/14) escuchando en 5432 y las conexiones caían ahí en lugar del contenedor.
 - **Solución (2026-08-23)**: el servicio `db` del compose de desarrollo se publica en el host como `5433:5432`. La URL de tests pasa a ser `postgres://zapping:zapping@localhost:5433/zapping?sslmode=disable`. Dentro del contenedor `golang:1.26` (para `-race`) se usa `host.docker.internal:5433`. El `docker-compose.yml` de entrega no expone el puerto de la DB al host, así que no le afecta.
 
+### D-22. Cierre del desarrollo
+
+- **Estado**: desarrollo completado el 2026-08-24. Las 24 tareas del plan (D-19) se ejecutaron bajo el ciclo D-18; la Tarea 2 fue reemplazada por D-20 y se agregaron dos commits fuera de plan a pedido de Matías: HLS.js embebido (D-21) y el ajuste de la cuenta regresiva a 100 ms.
+- **Verificación final**: suite completa con `-race` en Docker en verde (5 paquetes), flujo end-to-end automatizado, imagen de entrega (524 MB) levantada con el compose de entrega (`healthy`, apagado ordenado con SIGTERM verificado) y prueba de carga real: 200 conexiones concurrentes durante 30 s contra la playlist → 9489 req/s, p99 = 53 ms, 284 820 respuestas 200, sin errores.
+- **Entregables**: repo `prueba-zapping` (sin `segments/` ni `Prueba.md`, ver D-20) y zip con `prueba-zapping.tar` (docker save), `docker-compose.yml` e `INSTALACION.md`.
+
 ---
 
 ## Preguntas abiertas y respuestas
