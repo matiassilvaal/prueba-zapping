@@ -45,7 +45,13 @@ func NewService(users UserStore, sessions SessionStore, ttl time.Duration) *Serv
 		now:       time.Now,
 		bcryptSem: make(chan struct{}, runtime.GOMAXPROCS(0)),
 	}
-	s.dummyHash, _ = bcrypt.GenerateFromPassword([]byte("contraseña-de-relleno"), bcryptCost)
+	dummy, err := bcrypt.GenerateFromPassword([]byte("contraseña-de-relleno"), bcryptCost)
+	if err != nil {
+		// Sin hash dummy, el login con email inexistente respondería al
+		// instante y delataría qué emails existen (oráculo de timing).
+		panic(fmt.Sprintf("auth: hash dummy: %v", err))
+	}
+	s.dummyHash = dummy
 	s.cache.now = func() time.Time { return s.now() }
 	return s
 }
