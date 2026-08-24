@@ -183,12 +183,21 @@ playlist no depende de cuántos clientes la pidan.
 
 ## Construir y empaquetar la entrega
 
+La entrega incluye una imagen por arquitectura (amd64 y arm64); el Dockerfile
+cross-compila desde el host (`--platform=$BUILDPLATFORM` + `GOARCH`), así que
+construir la variante arm desde una máquina x86 no paga emulación del compilador.
+
 ```bash
-docker build -t prueba-zapping:latest .          # requiere ./segments presente
+# requiere ./segments presente
 mkdir -p dist
-docker save prueba-zapping:latest -o dist/prueba-zapping.tar
+docker buildx build --platform linux/amd64 -t prueba-zapping:latest --load .
+docker save prueba-zapping:latest -o dist/prueba-zapping-amd64.tar
+docker buildx build --platform linux/arm64 -t prueba-zapping:latest --load .
+docker save prueba-zapping:latest -o dist/prueba-zapping-arm64.tar
 cp docker-compose.yml INSTALACION.md dist/
 # comprimir dist/ y enviar; el receptor sigue INSTALACION.md
 ```
 
-Con `make` disponible: `make docker-save` hace build + save.
+Se entregan dos tars (y no un tar multi-arch único) porque `docker load` con el
+store clásico de imágenes solo acepta imágenes de una plataforma; dos archivos
+funcionan en cualquier Docker sin requisitos extra.

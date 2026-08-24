@@ -164,6 +164,13 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 - **Decisión** (2026-08-23): `hls.min.js` v1.7.1 (Apache-2.0) se copia a `internal/web/static/vendor/` junto con su licencia y un README con versión y origen; se sirve desde `/static/vendor/hls.min.js` y viaja embebido en el binario vía `embed`. El test del player verifica tanto la referencia local como que el archivo se sirva.
 - **Razón**: imagen 100 % autocontenida (funciona sin internet), versión fija y reproducible, sin riesgo por caídas o bloqueos del CDN. Costo: +600 KB en el binario.
 
+### D-26. Entrega multi-arquitectura: un tar por plataforma (amd64 y arm64)
+
+- **Contexto**: la imagen de entrega estaba construida solo para `linux/amd64`; en una máquina ARM (Apple Silicon) correría emulada o no correría. Pedido por Matías (2026-08-24).
+- **Opciones**: (a) tar multi-arch único (requiere el store containerd tanto al generar como al cargar; el Docker del evaluador puede no tenerlo); (b) dos tars, uno por arquitectura, ambos con el tag `prueba-zapping:latest` para que el mismo `docker-compose.yml` sirva sin cambios.
+- **Decisión**: (b), por compatibilidad con cualquier Docker. El Dockerfile adopta el patrón de cross-compilación (`FROM --platform=$BUILDPLATFORM` + `GOOS/GOARCH` de `TARGETOS/TARGETARCH`): el compilador corre nativo en el host y solo la imagen final es de la plataforma destino. `INSTALACION.md` indica qué tar cargar según `uname -m`.
+- **Verificación**: el binario arm64 ejecuta bajo QEMU (falla con el error esperado de configuración, no de arquitectura); ambos tars ~500 MB en `dist/`.
+
 ---
 
 ## Problemas y hallazgos

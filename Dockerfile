@@ -1,12 +1,16 @@
-# Etapa de compilación
-FROM golang:1.26-alpine AS build
+# Etapa de compilación. Corre siempre en la arquitectura del host
+# (--platform=$BUILDPLATFORM) y cross-compila hacia la de destino: un build
+# arm64 desde una máquina x86 no paga la emulación del compilador.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # Imagen final
 FROM alpine:3.21

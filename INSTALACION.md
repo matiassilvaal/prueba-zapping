@@ -2,10 +2,16 @@
 
 Requisitos: Docker 24+ con Docker Compose v2. No hace falta Go ni ninguna otra herramienta.
 
-1. Cargar la imagen (incluye la aplicación y los segmentos de video):
+1. Cargar la imagen según la arquitectura de tu máquina (`uname -m`); ambas
+   incluyen la aplicación y los segmentos de video y quedan con el mismo nombre
+   (`prueba-zapping:latest`), así que el resto de los pasos no cambia:
 
    ```bash
-   docker load -i prueba-zapping.tar
+   # x86_64 / amd64 (Intel o AMD)
+   docker load -i prueba-zapping-amd64.tar
+
+   # arm64 / aarch64 (Apple Silicon, ARM)
+   docker load -i prueba-zapping-arm64.tar
    ```
 
 2. Levantar la aplicación y su base de datos, desde la carpeta que contiene `docker-compose.yml`:
