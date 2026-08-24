@@ -24,8 +24,6 @@ const (
 	Unauthorized
 )
 
-type ctxKey struct{}
-
 // Escribe la cookie de sesión
 //
 // @param [http.ResponseWriter] w: respuesta
@@ -73,7 +71,7 @@ func TokenFromRequest(r *http.Request) string {
 	return c.Value
 }
 
-// Middleware que exige sesión válida e inyecta el id de usuario en el contexto
+// Middleware que exige sesión válida
 //
 // @param [Authenticator] a: validador de tokens
 // @param [FailureMode] mode: redirección o 401 ante fallo
@@ -82,8 +80,7 @@ func TokenFromRequest(r *http.Request) string {
 // @return [http.Handler] handler envuelto
 func RequireSession(a Authenticator, mode FailureMode, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, err := a.Authenticate(r.Context(), TokenFromRequest(r))
-		if err != nil {
+		if _, err := a.Authenticate(r.Context(), TokenFromRequest(r)); err != nil {
 			if mode == Unauthorized {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
@@ -93,17 +90,6 @@ func RequireSession(a Authenticator, mode FailureMode, next http.Handler) http.H
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, id)))
+		next.ServeHTTP(w, r)
 	})
-}
-
-// Recupera el id de usuario inyectado por RequireSession
-//
-// @param [context.Context] ctx: contexto del request
-//
-// @return [int64] id de usuario
-// @return [bool] false si no hay sesión en el contexto
-func UserID(ctx context.Context) (int64, bool) {
-	id, ok := ctx.Value(ctxKey{}).(int64)
-	return id, ok
 }
