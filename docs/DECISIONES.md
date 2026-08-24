@@ -236,6 +236,18 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 - **Tests agregados**: estancamiento y recuperación de `Ready`; semáforo de bcrypt (contexto vencido + liberación de cupos); sweep inline de la caché; duplicado de email con otras mayúsculas contra Postgres real; e2e de `/events` autenticado a través de `Recover → Logging → CSRF` leyendo el evento `window` inicial (fija que `statusWriter` preserva `Flush` en el flujo real).
 - **Límite conocido y aceptado**: una conexión `/events` abierta sobrevive al logout (la autenticación es al conectar, comportamiento estándar de SSE). No expone video —solo metadatos de ventana y conteo de espectadores— y la conexión muere al recargar o navegar; no se agrega revalidación por evento.
 
+### D-25. Tercera revisión integral (2026-08-24)
+
+- **Contexto**: revisión completa del repositorio (independiente de D-23/D-24) con el mismo criterio: refactors, código subóptimo (O(N²) y similares) y casos plausibles en operación normal, no bordes imposibles. Veredicto del revisor: sin hallazgos críticos y listo para producción — el hot path ya es O(1) por request y `WindowAt` O(log N). Se aplicaron 1 hallazgo importante y 5 menores en 6 commits atómicos; suite completa en verde incluyendo los tests de integración contra Postgres real.
+- **Fix importante**:
+  - Deadline de escritura de 30 s **por evento** en el SSE (`hub.ServeHTTP`, vía `http.ResponseController`): D-24 lo aplicó a playlist/segmentos pero el hub seguía escribiendo eventos y keepalives sin deadline con `WriteTimeout: 0`. Un cliente que deja de leer sin cerrar el socket (móvil sin cobertura, laptop suspendida) llenaba el buffer TCP y dejaba `Write` bloqueado hasta agotar las retransmisiones del kernel (~15 min), reteniendo goroutine/conexión y demorando el `Shutdown`; ahora corta a los 30 s. Cada escritura exitosa empuja el deadline y el keepalive de 15 s mantiene viva una conexión sana.
+- **Fixes menores**:
+  - `FindByEmail` consulta `WHERE lower(email) = $1`: la lectura ahora usa el índice funcional de la migración `0002` (antes solo servía para la unicidad) y encuentra filas insertadas sin la normalización de la app. Pendiente para una migración futura: eliminar el `UNIQUE(email)` simple de `0001`, hoy redundante.
+  - Logs de request de alto volumen y baja señal a Debug: los 2xx/3xx de `/healthz` (cada 10 s por el HEALTHCHECK) y de `/stream/*` (un segmento por espectador cada ~10 s) inundaban el log en Info; sus errores (>= 400) siguen en Info.
+  - El constructor de `auth.Service` hace panic si `bcrypt.GenerateFromPassword` falla al precalcular el hash dummy (antes ignoraba el error): sin hash dummy, el login con email inexistente respondería al instante y delataría qué emails existen (oráculo de timing).
+- **Refactors**: eliminado `auth.UserID` y la inyección del id de usuario al contexto (API muerta: solo la usaba su propio test); los tests E2E comparten el setup en `newE2EStack`/`registerUser` y ya no hacen nil-deref sobre `resp.StatusCode` cuando el request falla con `err != nil`.
+- **Hallazgos registrados sin aplicar**: FK `sessions.user_id` sin índice (solo importa si algún día se borran usuarios: el `CASCADE` haría seq-scan); `Cache-Control: immutable` en segmentos supone que un redeploy no cambia el contenido manteniendo los nombres (si eso cambia, versionar la URL como los assets); recomendaciones para multi-réplica (un logout tarda hasta 30 s en propagarse por la caché de sesiones de otra réplica; `viewers` es por proceso), `COOKIE_SECURE=true` en el compose de entrega, métricas mínimas y rate-limit por IP en `/login` si se expone públicamente.
+
 ---
 
 ## Preguntas abiertas y respuestas
