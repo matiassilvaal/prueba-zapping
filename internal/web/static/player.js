@@ -26,9 +26,17 @@
       hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () {}); });
       hls.on(Hls.Events.ERROR, function (_, data) {
         if (!data.fatal) { return; }
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); }
-        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); }
-        else { startPlayer(); }
+        if (data.response && data.response.code === 401) {
+          // Sesión vencida o cerrada en otra pestaña: sin login no hay stream.
+          window.location.href = '/login';
+        } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          // Con backoff: reintentar de inmediato martilla al servidor en bucle.
+          setTimeout(function () { hls.startLoad(); }, 2000);
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError();
+        } else {
+          startPlayer();
+        }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = SOURCE;
@@ -87,7 +95,15 @@
       els.viewers.textContent = JSON.parse(e.data).viewers;
     });
     es.onopen = function () { setStatus('EN VIVO', true); };
-    es.onerror = function () { setStatus('Reconectando…', false); };
+    es.onerror = function () {
+      if (es.readyState === EventSource.CLOSED) {
+        // EventSource no reintenta ante una respuesta no-200 (p. ej. 401 por
+        // sesión vencida): volvemos al login en vez de "Reconectando…" eterno.
+        window.location.href = '/login';
+        return;
+      }
+      setStatus('Reconectando…', false);
+    };
   }
 
   window.ZappingPlayer = { start: startPlayer };
