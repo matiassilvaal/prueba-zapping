@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"net/http"
@@ -113,5 +114,76 @@ func TestE2E_FlujoCompleto(t *testing.T) {
 	}
 	if resp := get("/stream/playlist.m3u8"); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("stream tras logout: %d", resp.StatusCode)
+	}
+}
+
+// El SSE autenticado debe funcionar a través del stack completo de middlewares
+// (Recover → Logging → CSRF): fija por contrato que statusWriter preserva
+// Flush en el flujo real, no solo en el type-assert que prueba
+// TestLogging_PreservaFlusher.
+func TestE2E_EventsPorElStackCompleto(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tl, err := stream.NewTimeline([]stream.Segment{
+		{Name: "s0.ts", Duration: 10 * time.Second}, {Name: "s1.ts", Duration: 10 * time.Second},
+		{Name: "s2.ts", Duration: 10 * time.Second}, {Name: "s3.ts", Duration: 10 * time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := func(name string) ([]byte, error) { return []byte("video " + name), nil }
+	streamSvc := stream.NewService(tl, loader, stream.RealClock(), quietLogger())
+	// Como en main: el hub se suscribe antes de arrancar el worker para
+	// recibir la primera ventana por contrato.
+	events, unsub := streamSvc.Subscribe()
+	defer unsub()
+	hub := NewHub(quietLogger())
+	go hub.Run(ctx, events)
+	go streamSvc.Run(ctx)
+
+	authSvc := auth.NewService(auth.NewMemoryUserStore(), auth.NewMemorySessionStore(), time.Hour)
+	site, err := New(Deps{
+		Auth: authSvc, Stream: stream.NewHandler(streamSvc), Hub: hub,
+		Ready:  func(context.Context) error { return nil },
+		Logger: quietLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Recover(quietLogger())(Logging(quietLogger())(http.NewCrossOriginProtection().Handler(site.Handler()))))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	form := url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "password": {"secreto123"}}
+	resp, err := client.PostForm(srv.URL+"/register", form)
+	if err != nil || resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("registro: %v %d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Esperar a que el hub tenga la primera ventana (evento inicial de /events).
+	for i := 0; hub.lastWindow() == nil && i < 100; i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if hub.lastWindow() == nil {
+		t.Fatal("el hub no recibió la primera ventana")
+	}
+
+	resp, err = client.Get(srv.URL + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("events: status %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("events: content-type %q", ct)
+	}
+	data := readEvent(t, bufio.NewScanner(resp.Body), "window")
+	if !strings.Contains(data, `"sequence":`) || !strings.Contains(data, `"viewers":`) {
+		t.Fatalf("evento window inesperado: %s", data)
 	}
 }
