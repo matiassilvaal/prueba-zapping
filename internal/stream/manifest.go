@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -89,6 +90,11 @@ func parseExtInf(text string) (time.Duration, error) {
 	secs, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return 0, fmt.Errorf("duración inválida %q", v)
+	}
+	// ParseFloat acepta "NaN" e "Inf"; NaN además esquiva el <= 0 (toda
+	// comparación con NaN es falsa) y la conversión a Duration no está definida.
+	if math.IsNaN(secs) || math.IsInf(secs, 0) {
+		return 0, fmt.Errorf("duración no finita %q", v)
 	}
 	if secs <= 0 {
 		return 0, fmt.Errorf("duración no positiva %q", v)

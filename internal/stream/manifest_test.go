@@ -49,6 +49,8 @@ func TestParseManifest_Errores(t *testing.T) {
 		{"menos de tres segmentos", "#EXTINF:10,\na.ts\n#EXTINF:10,\nb.ts\n", ErrTooFewSegments},
 		{"duración inválida", "#EXTINF:abc,\na.ts\n#EXTINF:10,\nb.ts\n#EXTINF:10,\nc.ts\n", nil},
 		{"duración no positiva", "#EXTINF:0,\na.ts\n#EXTINF:10,\nb.ts\n#EXTINF:10,\nc.ts\n", nil},
+		{"duración NaN", "#EXTINF:NaN,\na.ts\n#EXTINF:10,\nb.ts\n#EXTINF:10,\nc.ts\n", nil},
+		{"duración infinita", "#EXTINF:+Inf,\na.ts\n#EXTINF:10,\nb.ts\n#EXTINF:10,\nc.ts\n", nil},
 		{"nombre con ruta", "#EXTINF:10,\n../a.ts\n#EXTINF:10,\nb.ts\n#EXTINF:10,\nc.ts\n", nil},
 		{"segmento sin EXTINF", "a.ts\n#EXTINF:10,\nb.ts\n#EXTINF:10,\nc.ts\n", nil},
 	}
