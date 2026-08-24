@@ -79,7 +79,6 @@ func TestService_SesionExpirada(t *testing.T) {
 	svc := NewService(NewMemoryUserStore(), NewMemorySessionStore(), time.Minute)
 	now := time.Now()
 	svc.now = func() time.Time { return now }
-	svc.cache.now = svc.now
 	_, token, _ := svc.Register(ctx, RegistrationInput{"Ana", "ana@example.com", "secreto123"})
 	now = now.Add(2 * time.Minute)
 	if _, err := svc.Authenticate(ctx, token); !errors.Is(err, ErrNotFound) {
@@ -87,5 +86,12 @@ func TestService_SesionExpirada(t *testing.T) {
 	}
 	if n, _ := svc.DeleteExpired(ctx); n != 1 {
 		t.Fatalf("DeleteExpired: %d", n)
+	}
+}
+
+func TestService_HashDummyPrecalculado(t *testing.T) {
+	svc := newTestService()
+	if len(svc.dummyHash) == 0 {
+		t.Fatal("NewService debía precalcular el hash dummy: si no, el primer login con email inexistente paga dos bcrypt")
 	}
 }

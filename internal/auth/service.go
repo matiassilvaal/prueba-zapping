@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -18,29 +17,17 @@ const (
 
 // Service orquesta registro, login, logout y validación de sesiones.
 type Service struct {
-	users    UserStore
-	sessions SessionStore
-	cache    *SessionCache
-	ttl      time.Duration
-	now      func() time.Time
+	users     UserStore
+	sessions  SessionStore
+	cache     *SessionCache
+	ttl       time.Duration
+	now       func() time.Time
+	dummyHash []byte // referencia para igualar el costo del login con email inexistente
 }
 
-var (
-	dummyHashOnce sync.Once
-	dummyHash     []byte
-)
-
-// Hash de referencia para igualar el tiempo de respuesta cuando el email no existe
-//
-// @return [[]byte] hash bcrypt de una contraseña fija
-func getDummyHash() []byte {
-	dummyHashOnce.Do(func() {
-		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("contraseña-de-relleno"), bcryptCost)
-	})
-	return dummyHash
-}
-
-// Crea el servicio de autenticación
+// Crea el servicio de autenticación. Precalcula el hash dummy (para que el
+// primer login con email inexistente no pague dos bcrypt) y comparte su reloj
+// con la caché de sesiones (los tests lo reemplazan en un solo lugar)
 //
 // @param [UserStore] users: persistencia de usuarios
 // @param [SessionStore] sessions: persistencia de sesiones
@@ -48,13 +35,16 @@ func getDummyHash() []byte {
 //
 // @return [*Service] servicio
 func NewService(users UserStore, sessions SessionStore, ttl time.Duration) *Service {
-	return &Service{
+	s := &Service{
 		users:    users,
 		sessions: sessions,
 		cache:    NewSessionCache(cacheTTL, cacheMaxEntries),
 		ttl:      ttl,
 		now:      time.Now,
 	}
+	s.dummyHash, _ = bcrypt.GenerateFromPassword([]byte("contraseña-de-relleno"), bcryptCost)
+	s.cache.now = func() time.Time { return s.now() }
+	return s
 }
 
 // Duración configurada de las sesiones
@@ -101,7 +91,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (User, stri
 	u, err := s.users.FindByEmail(ctx, email)
 	switch {
 	case errors.Is(err, ErrNotFound):
-		CheckPassword(getDummyHash(), password) // mismo costo que un login real
+		CheckPassword(s.dummyHash, password) // mismo costo que un login real
 		return User{}, "", ErrInvalidCredentials
 	case err != nil:
 		return User{}, "", err
