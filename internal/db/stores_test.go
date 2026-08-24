@@ -26,6 +26,11 @@ func TestUserStore(t *testing.T) {
 	if _, err := users.Create(ctx, "Otra", "ana@example.com", []byte("hash")); !errors.Is(err, auth.ErrEmailTaken) {
 		t.Fatalf("duplicado: %v", err)
 	}
+	// Cinturón y tirantes: la unicidad no debe depender de que toda escritura
+	// pase por la normalización de la app.
+	if _, err := users.Create(ctx, "Otra", "ANA@example.com", []byte("hash")); !errors.Is(err, auth.ErrEmailTaken) {
+		t.Fatalf("duplicado con otras mayúsculas: %v", err)
+	}
 	got, err := users.FindByEmail(ctx, "ana@example.com")
 	if err != nil || got.ID != u.ID || got.Name != "Ana" || string(got.PasswordHash) != "hash" {
 		t.Fatalf("find: %v %+v", err, got)
