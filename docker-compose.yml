@@ -1,17 +1,15 @@
 services:
   app:
-    build: .
     image: prueba-zapping:latest
     ports:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://zapping:zapping@db:5432/zapping?sslmode=disable
-      LOG_LEVEL: debug
-    volumes:
-      - ./segments:/data/segments:ro
+      LOG_LEVEL: info
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
 
   db:
     image: postgres:17-alpine
@@ -19,10 +17,14 @@ services:
       POSTGRES_USER: zapping
       POSTGRES_PASSWORD: zapping
       POSTGRES_DB: zapping
-    ports:
-      - "5433:5432" # 5433 en el host: evita chocar con un Postgres local en 5432 (P-5)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U zapping -d zapping"]
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

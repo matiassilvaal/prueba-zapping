@@ -1,0 +1,8 @@
+.git
+docs
+dist
+*.md
+*.tar
+*.zip
+.env
+*.exe
