@@ -57,3 +57,28 @@ func TestSessionCache(t *testing.T) {
 		t.Fatalf("sweep: n=%d len=%d", n, c.Len())
 	}
 }
+
+func TestSessionCache_PutBarreVencidasAlLlenarse(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	c := NewSessionCache(30*time.Second, 2)
+	c.now = func() time.Time { return now }
+	h1, h2, h3 := HashToken("1"), HashToken("2"), HashToken("3")
+
+	c.Put(h1, 1, now.Add(time.Hour))
+	c.Put(h2, 2, now.Add(time.Hour))
+
+	// Las dos entradas vencen por TTL de caché; una nueva no debe quedar
+	// fuera hasta el próximo Sweep periódico: Put barre y cachea.
+	now = now.Add(31 * time.Second)
+	c.Put(h3, 3, now.Add(time.Hour))
+	if id, ok := c.Get(h3); !ok || id != 3 {
+		t.Fatal("con la caché llena de vencidas, Put debía barrer y cachear la entrada nueva")
+	}
+
+	// Llena de entradas vigentes sí se rechaza.
+	c.Put(h1, 1, now.Add(time.Hour))
+	c.Put(h2, 2, now.Add(time.Hour))
+	if _, ok := c.Get(h2); ok || c.Len() != 2 {
+		t.Fatalf("llena de vigentes no debía cachear más: len=%d", c.Len())
+	}
+}

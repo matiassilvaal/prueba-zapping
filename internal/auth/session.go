@@ -103,7 +103,12 @@ func (c *SessionCache) Put(hash []byte, userID int64, expiresAt time.Time) {
 	defer c.mu.Unlock()
 	key := string(hash)
 	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.maxEntries {
-		return
+		// Antes de rechazar la entrada nueva se barren las vencidas: si no,
+		// una caché llena de sesiones muertas dejaría sin caché a los logins
+		// nuevos hasta el próximo Sweep periódico.
+		if c.sweepLocked() == 0 {
+			return
+		}
 	}
 	c.entries[key] = cacheEntry{userID: userID, expiresAt: expiresAt, cachedAt: c.now()}
 }
@@ -121,9 +126,16 @@ func (c *SessionCache) Delete(hash []byte) {
 //
 // @return [int] cantidad eliminada
 func (c *SessionCache) Sweep() int {
-	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.sweepLocked()
+}
+
+// Elimina las entradas vencidas. Requiere c.mu tomado
+//
+// @return [int] cantidad eliminada
+func (c *SessionCache) sweepLocked() int {
+	now := c.now()
 	n := 0
 	for k, e := range c.entries {
 		if now.Sub(e.cachedAt) > c.ttl || !now.Before(e.expiresAt) {
