@@ -148,6 +148,8 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
   - `POST /logout` no exige sesión: si no hay cookie, igual la borra y redirige a `/login` (comportamiento equivalente al de la spec).
   - El evento SSE `window` incluye `secondsToNextTick` además de `nextTickAt`, para que la cuenta regresiva no dependa de la sincronía de relojes cliente/servidor.
   - `make` no está instalado en la máquina de desarrollo (Windows); el Makefile queda para Linux/CI y el README documenta los comandos `go`/`docker` directos. La prueba de carga usa `go run github.com/rakyll/hey@latest`.
+  - **Instrucciones del README (indicación de Matías, 2026-08-23)**: los comandos se documentan para **bash** en Windows (Git Bash), Linux y macOS; no se documenta PowerShell ni cmd. La sintaxis `VAR=valor comando` es válida en los tres.
+  - **Cuenta regresiva del panel**: el refresco pasó de 250 ms a 100 ms (commit `32aa159`) tras observar Matías que el contador saltaba de a 0.2-0.3 s; 100 ms coincide con la resolución mostrada (un decimal).
 
 ### D-20. Los segmentos de video no se versionan en GitHub (reemplaza la parte de repo de D-12)
 

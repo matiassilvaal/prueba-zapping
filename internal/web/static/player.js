@@ -63,12 +63,13 @@
     });
   }
 
-  // Cuenta regresiva local al próximo tick (4 veces por segundo)
+  // Cuenta regresiva local al próximo tick. Se refresca cada 100 ms, la misma
+  // resolución con la que se muestra (un decimal), para que baje de a 0.1 s.
   setInterval(function () {
     if (nextTickLocal === null) { return; }
     var remaining = Math.max(0, (nextTickLocal - Date.now()) / 1000);
     els.countdown.textContent = remaining.toFixed(1) + ' s';
-  }, 250);
+  }, 100);
 
   // Conecta al canal SSE; EventSource reintenta solo al perder la conexión
   function connectEvents() {
