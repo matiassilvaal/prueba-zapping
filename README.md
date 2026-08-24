@@ -72,18 +72,27 @@ maneja exclusivamente el servidor HTTP.
 
 - **Playlist**: se renderiza una vez por tick y se publica en un
   `atomic.Pointer`; cada request la lee sin locks ni allocs. `Cache-Control:
-  no-cache` + `ETag` (= secuencia) para respuestas `304`.
+  private, no-cache` + `ETag` (= secuencia) para respuestas `304` (`private`:
+  el recurso exige sesión y no debe quedar en cachés compartidas).
 - **Segmentos**: caché en RAM acotada a `[k-1, k+3]` — 1 de gracia (el recién
   removido sigue disponible para clientes con la playlist anterior), la ventana
-  de 3, y 1 de prefetch (el tick nunca espera al disco). Cota fija ~66 MB,
-  independiente del número de usuarios. Fuera de ese set → `404`: es un
-  livestream, todos ven la misma ventana. Headers `public, max-age=3600,
-  immutable` + `ETag`.
+  de 3, y 1 de prefetch **best-effort**: el tick nunca espera al disco y, si esa
+  lectura falla, la ventana se publica igual y se reintenta al tick siguiente.
+  Cota fija ~66 MB, independiente del número de usuarios. Fuera de ese set →
+  `404`: es un livestream, todos ven la misma ventana. Headers `private,
+  max-age=3600, immutable` + `ETag`.
 - **Sesiones**: cookie `HttpOnly` con token aleatorio; en la DB solo se guarda
   su SHA-256. Caché en proceso con TTL 30 s y tope de entradas: validar cada
   request del stream cuesta un hash + una lectura de mapa, no una consulta SQL.
+  El `Max-Age` de la cookie y el `expires_at` de la sesión salen de la misma
+  fuente (`auth.Service.TTL()`).
 - **SSE**: hub con envío no bloqueante por cliente (los lentos pierden eventos,
-  jamás frenan al worker). Espectadores = conexiones SSE activas.
+  jamás frenan al worker). Los eventos `viewers` se coalescen (~250 ms) para
+  que una ráfaga de conexiones no desplace al evento `window`. Espectadores =
+  conexiones SSE activas.
+- **Assets estáticos**: embebidos en el binario y servidos con URLs versionadas
+  por contenido (`?v=<hash>`) + `Cache-Control: immutable` de un año — caché
+  agresiva con invalidación inmediata al desplegar.
 
 ## Desviación consciente del RFC 8216
 
@@ -93,6 +102,18 @@ es lo que se implementa. HLS.js lo reproduce sin problemas. El mismo RFC pide
 mantener disponible el segmento removido: eso sí se cumple con el segmento de
 gracia.
 
+## Comportamiento ante fallas y apagado
+
+- **Sesión vencida con el player abierto**: HLS.js y el canal SSE detectan el
+  `401` y redirigen a `/login`; los errores de red reales reintentan con
+  backoff de 2 s (nunca un bucle de requests sin salida).
+- **Disco lento o segmento ilegible**: el prefetch fallido no interrumpe el
+  stream; solo la falta de un segmento obligatorio (gracia o ventana) congela
+  el tick, que se recupera solo en cuanto el archivo vuelve a leerse.
+- **Apagado ordenado**: ante SIGTERM el hub cierra sus conexiones SSE, así
+  `http.Server.Shutdown` (y `docker stop`) termina en milisegundos en lugar de
+  agotar los 10 s de gracia.
+
 ## Ejecutar en desarrollo
 
 Requisitos: Go 1.26+, Docker. Los comandos son para bash (Git Bash en Windows,
@@ -101,15 +122,16 @@ Linux o macOS). Antes de nada, copiar la carpeta `segments/` provista (los
 
 ```bash
 # Base de datos de desarrollo (host 5433, para no chocar con un Postgres local)
-docker compose -f docker-compose.dev.yml up -d db
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
 
 # Servidor local
 DATABASE_URL='postgres://zapping:zapping@localhost:5433/zapping?sslmode=disable' \
 SEGMENTS_DIR=./segments go run ./cmd/server
 # abrir http://localhost:8080
 
-# Todo dentro de Docker (build + segmentos montados como volumen)
-docker compose -f docker-compose.dev.yml up --build -d
+# Todo dentro de Docker (build + segmentos montados como volumen; el compose
+# de desarrollo es un override del de entrega: solo declara las diferencias)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 ```
 
 Variables de entorno (todas opcionales salvo `DATABASE_URL`):

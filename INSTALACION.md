@@ -19,6 +19,8 @@ Requisitos: Docker 24+ con Docker Compose v2. No hace falta Go ni ninguna otra h
    ```bash
    docker compose ps                      # app y db deben decir "healthy"
    curl http://localhost:8080/healthz     # debe responder "ok"
+   # (si responde "not ready", la app aún está arrancando o la DB no está lista;
+   #  el detalle queda en los logs: docker compose logs app)
    ```
 
 4. Abrir <http://localhost:8080> en el navegador, crear una cuenta y entrar al player.
@@ -34,4 +36,5 @@ Notas:
 
 - La base de datos usa la imagen pública `postgres:17-alpine`; sus datos persisten en el volumen `pgdata`.
 - Si el puerto 8080 está ocupado, cambiar el mapeo en `docker-compose.yml` (por ejemplo `"8081:8080"`).
+- El apagado es ordenado: `docker compose down` termina en segundos aunque haya espectadores conectados (las conexiones SSE se cierran desde el servidor).
 - Los logs de la aplicación: `docker compose logs -f app`.

@@ -198,6 +198,31 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 - **Verificación final**: suite completa con `-race` en Docker en verde (5 paquetes), flujo end-to-end automatizado, imagen de entrega (524 MB) levantada con el compose de entrega (`healthy`, apagado ordenado con SIGTERM verificado) y prueba de carga real: 200 conexiones concurrentes durante 30 s contra la playlist → 9489 req/s, p99 = 53 ms, 284 820 respuestas 200, sin errores.
 - **Entregables**: repo `prueba-zapping` (sin `segments/` ni `Prueba.md`, ver D-20) y zip con `prueba-zapping.tar` (docker save), `docker-compose.yml` e `INSTALACION.md`.
 
+### D-23. Revisión integral posterior al cierre (2026-08-24)
+
+- **Contexto**: con el desarrollo cerrado (D-22) se hizo una revisión completa del repositorio buscando bugs reales, código subóptimo y refactors — no casos borde imposibles. Se aplicó en 14 commits atómicos con TDD (test en rojo antes de cada fix); la suite completa quedó en verde.
+- **Fixes de comportamiento**:
+  - `Cache-Control: private` en playlist y segmentos: son recursos protegidos por sesión y `public` autorizaba a cachés compartidas (proxies/CDN) a servirlos a otros usuarios sin pasar por la autenticación (actualiza D-13 C1/C2).
+  - Prefetch best-effort: un fallo al leer `k+3` ya no bloquea la publicación de la ventana `k`; solo la falta de un segmento obligatorio (gracia o ventana) detiene el tick, con recuperación automática (actualiza Q-4).
+  - El hub SSE cierra sus clientes al cancelarse su contexto: antes `http.Server.Shutdown` esperaba los 10 s de gracia completos con un solo espectador conectado, compitiendo con el SIGKILL de `docker stop`.
+  - Player ante `401` (sesión vencida o cerrada en otra pestaña): HLS.js y EventSource redirigen a `/login`; antes quedaban en un bucle de reintentos / "Reconectando…" sin salida. Los errores de red reales reintentan con backoff de 2 s.
+  - Assets estáticos versionados por contenido (`?v=<hash>` + `immutable` de 1 año) y sin listado de directorios: antes, tras un despliegue, los navegadores podían seguir con el `player.js` viejo hasta 24 h.
+  - Eventos `viewers` coalescidos (~250 ms) para que una ráfaga de altas/bajas no llene los buffers y desplace al evento `window` (actualiza D-13 C4).
+  - `Recover` re-lanza `http.ErrAbortHandler` y no escribe "Error interno" sobre una respuesta ya iniciada (SSE); `Logging` registra 200 implícito; `healthz` responde `not ready` y loguea el detalle (los errores de pgx pueden incluir el DSN).
+  - El hub se suscribe al stream **antes** de arrancar el worker: la primera ventana llega por orden de composición, no por el timing del primer tick.
+- **Refactors y perf**:
+  - TTL único: se eliminó `Deps.SessionTTL`; el `Max-Age` de la cookie y el `expires_at` de la sesión salen de `auth.Service.TTL()`.
+  - El janitor de sesiones pasó de `main` a `auth.Service.RunJanitor` con períodos inyectables (y test).
+  - Hash dummy de bcrypt precalculado en `NewService`: el primer login con email inexistente pagaba dos bcrypt (~0.5 s con costo 12). La caché de sesiones comparte el reloj del servicio.
+  - `servePlaylist` sobre `http.ServeContent`: If-None-Match con listas (antes igualdad exacta), HEAD y Range uniformes con los segmentos.
+  - Log de `publish` sin hardcodear `WindowSize` y sin construir datos con Debug apagado.
+- **Build/entrega**:
+  - `HEALTHCHECK` usa `${PORT}`: con `-e PORT=9000` el contenedor quedaba unhealthy con la app sana.
+  - `docker-compose.dev.yml` pasa a ser un **override** del compose base: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build` (antes duplicaba el servicio `db` completo).
+  - `go.mod` pide `go 1.26` en lugar del patch exacto 1.26.5 (evita descargas de toolchain en el build Docker); `.dockerignore` deja pasar el README de procedencia de HLS.js (D-21).
+- **Tests agregados**: `/events` sin sesión → 401; descarte de eventos a clientes SSE lentos (prometido en la spec §11); cancelación de suscripción del stream; `DB_MAX_CONNS`/`COOKIE_SECURE`/`PORT` inválidos en config; `web.New` con logger nil usa `slog.Default()`; el helper `readEvent` corta a los 3 s de verdad (antes un evento ausente colgaba el paquete entero).
+- **Nota de auditoría**: el texto de D-13 (C1, C2, C4) y de Q-4 se actualizó en esas mismas entradas para reflejar el comportamiento vigente; esta entrada registra el porqué de cada cambio.
+
 ---
 
 ## Preguntas abiertas y respuestas
