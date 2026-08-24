@@ -1,0 +1,26 @@
+{{define "content"}}
+<header class="topbar">
+  <div class="brand"><span class="live-dot" id="live-dot"></span> Zapping Live <span class="status" id="status">Conectando…</span></div>
+  <form method="post" action="/logout"><button type="submit" class="btn btn--ghost">Cerrar sesión</button></form>
+</header>
+<section class="player-grid">
+  <div class="card card--video">
+    <video id="video" controls autoplay muted playsinline></video>
+  </div>
+  <aside class="card panel">
+    <h2>En vivo</h2>
+    <dl class="stats">
+      <div><dt>Espectadores</dt><dd id="viewers">—</dd></div>
+      <div><dt>Secuencia</dt><dd id="sequence">—</dd></div>
+      <div><dt>Discontinuidades</dt><dd id="disc-sequence">—</dd></div>
+      <div><dt>Próximo segmento en</dt><dd id="countdown">—</dd></div>
+    </dl>
+    <h3>Ventana actual</h3>
+    <ol class="segments" id="segments"><li class="muted">Esperando datos…</li></ol>
+  </aside>
+</section>
+{{end}}
+{{define "scripts"}}
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+<script src="/static/player.js"></script>
+{{end}}

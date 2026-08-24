@@ -169,3 +169,35 @@ func TestLogoutYRaiz(t *testing.T) {
 		t.Fatal("la sesión debía quedar invalidada")
 	}
 }
+
+func TestPlayerYStreamProtegidos(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/player", nil))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
+		t.Fatalf("player sin sesión: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/stream/playlist.m3u8", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("stream sin sesión: %d", rec.Code)
+	}
+
+	c := registerAndLogin(t, h)
+	req := httptest.NewRequest("GET", "/player", nil)
+	req.AddCookie(c)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "hls.js") || !strings.Contains(rec.Body.String(), `id="video"`) {
+		t.Fatalf("player con sesión: %d", rec.Code)
+	}
+	req = httptest.NewRequest("GET", "/stream/playlist.m3u8", nil)
+	req.AddCookie(c)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 || rec.Body.String() != "STREAM /playlist.m3u8" {
+		t.Fatalf("stream con sesión: %d %q", rec.Code, rec.Body.String())
+	}
+}

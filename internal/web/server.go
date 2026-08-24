@@ -59,6 +59,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /login", s.loginForm)
 	s.mux.HandleFunc("POST /login", s.loginSubmit)
 	s.mux.HandleFunc("POST /logout", s.logout)
+	s.mux.Handle("GET /player", auth.RequireSession(s.deps.Auth, auth.RedirectToLogin, http.HandlerFunc(s.player)))
+	s.mux.Handle("/stream/", http.StripPrefix("/stream", auth.RequireSession(s.deps.Auth, auth.Unauthorized, s.deps.Stream)))
 }
 
 // Envuelve un handler fijando el header Cache-Control
@@ -197,6 +199,14 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.SetSessionCookie(w, token, s.deps.SessionTTL, s.deps.CookieSecure)
 	http.Redirect(w, r, "/player", http.StatusSeeOther)
+}
+
+// Muestra la página del player
+//
+// @param [http.ResponseWriter] w: respuesta
+// @param [*http.Request] r: request autenticado
+func (s *Server) player(w http.ResponseWriter, r *http.Request) {
+	s.render(w, http.StatusOK, "player.html", newPageData("Player"))
 }
 
 // Cierra la sesión actual, borra la cookie y redirige al login
