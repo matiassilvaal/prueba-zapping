@@ -1,28 +1,15 @@
+# Override de desarrollo sobre el compose base. Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Solo declara las diferencias: build local, logs debug, segmentos montados
+# desde el repo y el puerto de la DB expuesto para los tests de integración.
 services:
   app:
     build: .
-    image: prueba-zapping:latest
-    ports:
-      - "8080:8080"
     environment:
-      DATABASE_URL: postgres://zapping:zapping@db:5432/zapping?sslmode=disable
       LOG_LEVEL: debug
     volumes:
       - ./segments:/data/segments:ro
-    depends_on:
-      db:
-        condition: service_healthy
 
   db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: zapping
-      POSTGRES_PASSWORD: zapping
-      POSTGRES_DB: zapping
     ports:
       - "5433:5432" # 5433 en el host: evita chocar con un Postgres local en 5432 (P-5)
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zapping -d zapping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10

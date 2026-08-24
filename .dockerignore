@@ -6,3 +6,4 @@ dist
 *.zip
 .env
 *.exe
+!internal/web/static/vendor/README.md
