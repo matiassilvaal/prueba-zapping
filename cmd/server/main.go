@@ -124,7 +124,7 @@ func run() error {
 	defer unsubscribe()
 	go hub.Run(ctx, events)
 	go func() { errCh <- streamSvc.Run(ctx) }()
-	go sessionJanitor(ctx, authSvc, logger)
+	go authSvc.RunJanitor(ctx, time.Hour, time.Minute, logger)
 	go func() {
 		logger.Info("servidor HTTP escuchando", "addr", srv.Addr)
 		errCh <- srv.ListenAndServe()
@@ -147,28 +147,3 @@ func run() error {
 	return nil
 }
 
-// Limpia sesiones expiradas de la DB cada hora y de la caché cada minuto
-//
-// @param [context.Context] ctx: cancelación
-// @param [*auth.Service] svc: servicio de auth
-// @param [*slog.Logger] logger: logger
-func sessionJanitor(ctx context.Context, svc *auth.Service, logger *slog.Logger) {
-	dbTicker := time.NewTicker(time.Hour)
-	cacheTicker := time.NewTicker(time.Minute)
-	defer dbTicker.Stop()
-	defer cacheTicker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-cacheTicker.C:
-			svc.SweepCache()
-		case <-dbTicker.C:
-			if n, err := svc.DeleteExpired(ctx); err != nil {
-				logger.Error("no se pudieron borrar sesiones expiradas", "error", err)
-			} else if n > 0 {
-				logger.Info("sesiones expiradas eliminadas", "count", n)
-			}
-		}
-	}
-}
