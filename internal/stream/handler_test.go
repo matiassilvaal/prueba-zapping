@@ -80,3 +80,14 @@ func TestHandler_Segmento(t *testing.T) {
 		t.Fatalf("range: status %d body %q", rec.Code, rec.Body.String())
 	}
 }
+
+func TestHandler_PlaylistIfNoneMatchLista(t *testing.T) {
+	h := NewHandler(runningService(t))
+	req := httptest.NewRequest("GET", "/playlist.m3u8", nil)
+	req.Header.Set("If-None-Match", `"5", "0"`)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotModified {
+		t.Fatalf("una lista If-None-Match que incluye el ETag vigente debía dar 304, got %d", rec.Code)
+	}
+}

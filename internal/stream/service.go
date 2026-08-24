@@ -127,8 +127,12 @@ func (s *Service) publish(w Window) error {
 	// cuyos archivos aún no están disponibles.
 	s.set.Store(set)
 	s.snapshot.Store(snap)
-	s.logger.Debug("tick publicado", "sequence", w.MediaSequence, "discontinuity_sequence", w.DiscontinuitySequence,
-		"window", []string{w.Entries[0].Name, w.Entries[1].Name, w.Entries[2].Name}, "cache_bytes", set.bytes(), "next_tick", w.NextTick)
+	if s.logger.Enabled(context.Background(), slog.LevelDebug) {
+		// Guardia + helper: no se arma el slice de nombres con Debug apagado,
+		// y el log no depende de que WindowSize sea exactamente 3.
+		s.logger.Debug("tick publicado", "sequence", w.MediaSequence, "discontinuity_sequence", w.DiscontinuitySequence,
+			"window", entryNames(w), "cache_bytes", set.bytes(), "next_tick", w.NextTick)
+	}
 	s.broadcast(w)
 	return nil
 }
@@ -181,4 +185,17 @@ func (s *Service) broadcast(w Window) {
 		default:
 		}
 	}
+}
+
+// Nombres de los segmentos de una ventana (para logs)
+//
+// @param [Window] w: ventana
+//
+// @return [[]string] nombres en orden
+func entryNames(w Window) []string {
+	names := make([]string, len(w.Entries))
+	for i, e := range w.Entries {
+		names[i] = e.Name
+	}
+	return names
 }

@@ -25,7 +25,9 @@ func NewHandler(s *Service) http.Handler {
 	return mux
 }
 
-// Sirve la playlist vigente con ETag por secuencia y sin caché intermedia
+// Sirve la playlist vigente con ETag por secuencia y sin caché compartida.
+// http.ServeContent resuelve If-None-Match (304, incluso en listas), HEAD y
+// Range, igual que en los segmentos
 //
 // @param [http.ResponseWriter] w: respuesta
 // @param [*http.Request] r: request
@@ -38,12 +40,7 @@ func (h *handler) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("ETag", snap.ETag)
-	if r.Header.Get("If-None-Match") == snap.ETag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(snap.Playlist)))
-	w.Write(snap.Playlist)
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(snap.Playlist))
 }
 
 // Sirve un segmento desde la caché; fuera de la ventana responde 404
