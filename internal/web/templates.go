@@ -5,9 +5,12 @@ package web
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -22,6 +25,7 @@ var staticFS embed.FS
 // pageData es el modelo común de todas las vistas.
 type pageData struct {
 	Title  string
+	Assets string // versión de los assets estáticos, para URLs con caché larga
 	Form   map[string]string
 	Errors map[string]string
 	Error  string
@@ -33,7 +37,7 @@ type pageData struct {
 //
 // @return [pageData] modelo listo para renderizar
 func newPageData(title string) pageData {
-	return pageData{Title: title, Form: map[string]string{}, Errors: map[string]string{}}
+	return pageData{Title: title, Assets: assetsVersion, Form: map[string]string{}, Errors: map[string]string{}}
 }
 
 // renderer mantiene una plantilla compilada por página, cada una con el layout.
@@ -87,3 +91,27 @@ func (r *renderer) render(w http.ResponseWriter, status int, page string, data a
 	_, err := buf.WriteTo(w)
 	return err
 }
+
+// Versión de los assets embebidos: hash del contenido de static/. Cambia en
+// cada build que toque un asset, de modo que las URLs ?v=<hash> invalidan la
+// caché del navegador tras un despliegue (la caché puede ser larga e immutable)
+//
+// @return [string] primeros 12 hex del SHA-256 acumulado
+func computeAssetsVersion() string {
+	h := sha256.New()
+	fs.WalkDir(staticFS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := staticFS.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		io.WriteString(h, p)
+		h.Write(b)
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+var assetsVersion = computeAssetsVersion()

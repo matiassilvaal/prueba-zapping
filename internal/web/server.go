@@ -53,7 +53,9 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // Registra las rutas en el mux
 func (s *Server) routes() {
 	static, _ := fs.Sub(staticFS, "static")
-	s.mux.Handle("GET /static/", cacheControl("public, max-age=86400", http.StripPrefix("/static/", http.FileServerFS(static))))
+	// Las URLs de assets llevan ?v=<hash> (assetsVersion): la caché puede ser
+	// larga e immutable porque cada build que los cambie cambia también la URL.
+	s.mux.Handle("GET /static/", cacheControl("public, max-age=31536000, immutable", http.StripPrefix("/static/", http.FileServerFS(noDirFS{static}))))
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /{$}", s.root)
 	s.mux.HandleFunc("GET /register", s.registerForm)
@@ -239,4 +241,26 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.ClearSessionCookie(w, s.deps.CookieSecure)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// noDirFS oculta los directorios de un fs.FS: http.FileServer responde 404 en
+// lugar de listar su contenido.
+type noDirFS struct{ fs.FS }
+
+// Abre un archivo; los directorios se reportan como inexistentes
+//
+// @param [string] name: ruta dentro del FS
+//
+// @return [fs.File] archivo abierto
+// @return [error] fs.ErrNotExist si name es un directorio
+func (n noDirFS) Open(name string) (fs.File, error) {
+	f, err := n.FS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := f.Stat(); err == nil && st.IsDir() {
+		f.Close()
+		return nil, fs.ErrNotExist
+	}
+	return f, nil
 }

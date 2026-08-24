@@ -95,7 +95,7 @@ func TestStatic(t *testing.T) {
 	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/css") {
 		t.Fatalf("status %d ct %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
-	if rec.Header().Get("Cache-Control") != "public, max-age=86400" {
+	if rec.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("cache-control %q", rec.Header().Get("Cache-Control"))
 	}
 }
@@ -191,7 +191,7 @@ func TestPlayerYStreamProtegidos(t *testing.T) {
 	req.AddCookie(c)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `src="/static/vendor/hls.min.js"`) || !strings.Contains(rec.Body.String(), `id="video"`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `src="/static/vendor/hls.min.js?v=`) || !strings.Contains(rec.Body.String(), `id="video"`) {
 		t.Fatalf("player con sesión: %d", rec.Code)
 	}
 	rec = httptest.NewRecorder()
@@ -220,5 +220,25 @@ func TestHealthz(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d", rec.Code)
+	}
+}
+
+func TestStatic_SinListadoDeDirectorios(t *testing.T) {
+	s, _ := newTestServer(t)
+	for _, path := range []string{"/static/", "/static/vendor/"} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: se esperaba 404, got %d", path, rec.Code)
+		}
+	}
+}
+
+func TestAssetsVersionados(t *testing.T) {
+	s, _ := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/login", nil))
+	if !strings.Contains(rec.Body.String(), `href="/static/app.css?v=`) {
+		t.Fatalf("el layout debía versionar app.css: %s", rec.Body.String()[:200])
 	}
 }

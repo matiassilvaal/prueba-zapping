@@ -21,6 +21,6 @@
 </section>
 {{end}}
 {{define "scripts"}}
-<script src="/static/vendor/hls.min.js"></script>
-<script src="/static/player.js"></script>
+<script src="/static/vendor/hls.min.js?v={{.Assets}}"></script>
+<script src="/static/player.js?v={{.Assets}}"></script>
 {{end}}
