@@ -15,6 +15,7 @@ import (
 const (
 	clientBuffer      = 4
 	keepaliveInterval = 15 * time.Second
+	viewersDebounce   = 250 * time.Millisecond
 )
 
 type segmentEvent struct {
@@ -40,10 +41,11 @@ type viewersEvent struct {
 type Hub struct {
 	logger *slog.Logger
 
-	mu      sync.Mutex
-	clients map[chan []byte]struct{}
-	last    *stream.Window
-	closed  bool // true tras cancelarse Run: no se aceptan clientes nuevos
+	mu             sync.Mutex
+	clients        map[chan []byte]struct{}
+	last           *stream.Window
+	closed         bool // true tras cancelarse Run: no se aceptan clientes nuevos
+	viewersPending bool // ya hay un evento viewers programado
 }
 
 // Crea el hub
@@ -168,7 +170,7 @@ func (h *Hub) add() (chan []byte, []byte) {
 	if h.last != nil {
 		initial = formatEvent("window", h.windowEventLocked(*h.last))
 	}
-	h.broadcastLocked(formatEvent("viewers", viewersEvent{Viewers: len(h.clients)}))
+	h.scheduleViewersLocked()
 	return ch, initial
 }
 
@@ -179,7 +181,7 @@ func (h *Hub) remove(ch chan []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, ch)
-	h.broadcastLocked(formatEvent("viewers", viewersEvent{Viewers: len(h.clients)}))
+	h.scheduleViewersLocked()
 }
 
 // Envía un mensaje a todos los clientes; descarta si el buffer está lleno.
@@ -236,4 +238,24 @@ func formatEvent(name string, v any) []byte {
 	}
 	b.WriteString("\n")
 	return b.Bytes()
+}
+
+// Programa un único evento viewers dentro de viewersDebounce. Coalescer las
+// ráfagas de altas/bajas evita llenar los buffers de los clientes y desplazar
+// al evento window, que es el que importa (y ya incluye el conteo).
+// Requiere h.mu tomado
+func (h *Hub) scheduleViewersLocked() {
+	if h.viewersPending || h.closed {
+		return
+	}
+	h.viewersPending = true
+	time.AfterFunc(viewersDebounce, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.viewersPending = false
+		if h.closed {
+			return
+		}
+		h.broadcastLocked(formatEvent("viewers", viewersEvent{Viewers: len(h.clients)}))
+	})
 }

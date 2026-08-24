@@ -136,3 +136,34 @@ func TestHub_CierraClientesAlApagar(t *testing.T) {
 		t.Fatal("el handler SSE no terminó al cancelar el contexto del hub")
 	}
 }
+
+func TestHub_CoalesceEventosViewers(t *testing.T) {
+	hub := NewHub(quietLogger())
+	events := make(chan stream.Window)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx, events)
+
+	srv := httptest.NewServer(hub)
+	defer srv.Close()
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	defer cancelReq()
+	req, _ := http.NewRequestWithContext(reqCtx, "GET", srv.URL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	for i := 0; i < 50 && hub.Viewers() != 1; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Dos altas más dentro de la ventana de coalescencia: debe llegar un único
+	// evento viewers con el conteo final, no una ráfaga 1, 2, 3 que pueda
+	// desplazar al evento window de los buffers.
+	hub.add()
+	hub.add()
+	if data := readEvent(t, bufio.NewScanner(resp.Body), "viewers"); data != `{"viewers":3}` {
+		t.Fatalf("primer evento viewers: %s", data)
+	}
+}
