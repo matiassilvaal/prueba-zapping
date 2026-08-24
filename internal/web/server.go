@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"prueba-zapping/internal/auth"
 )
@@ -17,7 +16,6 @@ type Deps struct {
 	Stream       http.Handler // handler del stream sin autenticación; se protege aquí
 	Hub          *Hub         // canal SSE; opcional (nil desactiva /events)
 	Ready        func(ctx context.Context) error
-	SessionTTL   time.Duration
 	CookieSecure bool
 	Logger       *slog.Logger
 }
@@ -152,7 +150,7 @@ func (s *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	auth.SetSessionCookie(w, token, s.deps.SessionTTL, s.deps.CookieSecure)
+	auth.SetSessionCookie(w, token, s.deps.Auth.TTL(), s.deps.CookieSecure)
 	http.Redirect(w, r, "/player", http.StatusSeeOther)
 }
 
@@ -217,7 +215,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusInternalServerError, "login.html", data)
 		return
 	}
-	auth.SetSessionCookie(w, token, s.deps.SessionTTL, s.deps.CookieSecure)
+	auth.SetSessionCookie(w, token, s.deps.Auth.TTL(), s.deps.CookieSecure)
 	http.Redirect(w, r, "/player", http.StatusSeeOther)
 }
 

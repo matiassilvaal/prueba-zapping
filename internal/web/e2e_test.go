@@ -43,7 +43,7 @@ func TestE2E_FlujoCompleto(t *testing.T) {
 			}
 			return nil
 		},
-		SessionTTL: time.Hour, Logger: quietLogger(),
+		Logger: quietLogger(),
 	})
 	if err != nil {
 		t.Fatal(err)

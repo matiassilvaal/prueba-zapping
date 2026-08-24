@@ -94,7 +94,6 @@ func run() error {
 			}
 			return pool.Ping(ctx)
 		},
-		SessionTTL:   cfg.SessionTTL,
 		CookieSecure: cfg.CookieSecure,
 		Logger:       logger,
 	})

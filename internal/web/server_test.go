@@ -21,11 +21,10 @@ func newTestServer(t *testing.T) (*Server, *auth.Service) {
 	t.Helper()
 	a := auth.NewService(auth.NewMemoryUserStore(), auth.NewMemorySessionStore(), time.Hour)
 	s, err := New(Deps{
-		Auth:       a,
-		Stream:     http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "STREAM "+r.URL.Path) }),
-		Ready:      func(context.Context) error { return nil },
-		SessionTTL: time.Hour,
-		Logger:     quietLogger(),
+		Auth:   a,
+		Stream: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "STREAM "+r.URL.Path) }),
+		Ready:  func(context.Context) error { return nil },
+		Logger: quietLogger(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,5 +239,14 @@ func TestAssetsVersionados(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/login", nil))
 	if !strings.Contains(rec.Body.String(), `href="/static/app.css?v=`) {
 		t.Fatalf("el layout debía versionar app.css: %s", rec.Body.String()[:200])
+	}
+}
+
+func TestCookieUsaTTLDelServicioAuth(t *testing.T) {
+	s, a := newTestServer(t)
+	rec := postForm(s.Handler(), "/register", url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "password": {"secreto123"}})
+	c := sessionCookie(t, rec)
+	if c.MaxAge != int(a.TTL().Seconds()) {
+		t.Fatalf("Max-Age de la cookie %d; el TTL del servicio es %v", c.MaxAge, a.TTL())
 	}
 }
