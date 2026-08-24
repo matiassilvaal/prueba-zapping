@@ -15,6 +15,7 @@ import (
 type Deps struct {
 	Auth         *auth.Service
 	Stream       http.Handler // handler del stream sin autenticación; se protege aquí
+	Hub          *Hub         // canal SSE; opcional (nil desactiva /events)
 	Ready        func(ctx context.Context) error
 	SessionTTL   time.Duration
 	CookieSecure bool
@@ -61,6 +62,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /logout", s.logout)
 	s.mux.Handle("GET /player", auth.RequireSession(s.deps.Auth, auth.RedirectToLogin, http.HandlerFunc(s.player)))
 	s.mux.Handle("/stream/", http.StripPrefix("/stream", auth.RequireSession(s.deps.Auth, auth.Unauthorized, s.deps.Stream)))
+	if s.deps.Hub != nil {
+		s.mux.Handle("GET /events", auth.RequireSession(s.deps.Auth, auth.Unauthorized, s.deps.Hub))
+	}
 }
 
 // Envuelve un handler fijando el header Cache-Control
