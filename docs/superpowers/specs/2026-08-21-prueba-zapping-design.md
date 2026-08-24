@@ -2,6 +2,13 @@
 
 Fecha: 2026-08-21. Estado: aprobado (ver `docs/DECISIONES.md`, D-16).
 
+> **Nota (2026-08-24)**: este documento refleja el diseño aprobado antes de la
+> implementación y se conserva como registro histórico. Los ajustes posteriores
+> (por ejemplo `Cache-Control: private` en el stream, assets versionados por
+> `?v=<hash>`, prefetch best-effort, endurecimientos de D-24/D-25) están
+> documentados en `docs/DECISIONES.md` (D-20 a D-25); ante una discrepancia,
+> manda el registro de decisiones.
+
 ## 1. Objetivo
 
 Servicio en Go que simula un livestreaming HLS a partir de segmentos de video
