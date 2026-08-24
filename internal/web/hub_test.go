@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,24 +14,35 @@ import (
 	"prueba-zapping/internal/stream"
 )
 
-// readEvent lee líneas hasta encontrar "event: <name>" y devuelve su línea data.
+// readEvent lee líneas hasta encontrar "event: <name>" y devuelve su línea
+// data. La lectura corre en una goroutine para que el deadline corte de
+// verdad: antes un evento que nunca llegaba colgaba el test entero en Scan
 func readEvent(t *testing.T, sc *bufio.Scanner, name string) string {
 	t.Helper()
-	deadline := time.After(3 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatalf("no llegó el evento %q", name)
-		default:
+	result := make(chan string, 1)
+	fail := make(chan string, 1)
+	go func() {
+		for {
+			if !sc.Scan() {
+				fail <- fmt.Sprintf("stream cerrado esperando %q: %v", name, sc.Err())
+				return
+			}
+			if sc.Text() == "event: "+name {
+				sc.Scan()
+				result <- strings.TrimPrefix(sc.Text(), "data: ")
+				return
+			}
 		}
-		if !sc.Scan() {
-			t.Fatalf("stream cerrado esperando %q: %v", name, sc.Err())
-		}
-		if sc.Text() == "event: "+name {
-			sc.Scan()
-			return strings.TrimPrefix(sc.Text(), "data: ")
-		}
+	}()
+	select {
+	case data := <-result:
+		return data
+	case msg := <-fail:
+		t.Fatal(msg)
+	case <-time.After(3 * time.Second):
+		t.Fatalf("no llegó el evento %q", name)
 	}
+	return ""
 }
 
 func TestHub(t *testing.T) {
@@ -165,5 +177,31 @@ func TestHub_CoalesceEventosViewers(t *testing.T) {
 	hub.add()
 	if data := readEvent(t, bufio.NewScanner(resp.Body), "viewers"); data != `{"viewers":3}` {
 		t.Fatalf("primer evento viewers: %s", data)
+	}
+}
+
+func TestHub_ClienteLentoDescartaEventos(t *testing.T) {
+	hub := NewHub(quietLogger())
+	events := make(chan stream.Window)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx, events)
+
+	// Cliente registrado que nunca lee su canal.
+	hub.mu.Lock()
+	ch := make(chan []byte, clientBuffer)
+	hub.clients[ch] = struct{}{}
+	hub.mu.Unlock()
+
+	// Muchos más eventos que el buffer: el hub nunca debe bloquearse.
+	for i := 0; i < clientBuffer*3; i++ {
+		select {
+		case events <- stream.Window{MediaSequence: uint64(i), NextTick: time.Now()}:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("el hub se bloqueó con un cliente lento en el evento %d", i)
+		}
+	}
+	if n := len(ch); n != clientBuffer {
+		t.Fatalf("el cliente lento debía conservar %d eventos (el resto descartado), tiene %d", clientBuffer, n)
 	}
 }

@@ -34,6 +34,9 @@ type Server struct {
 // @return [*Server] servidor
 // @return [error] si las plantillas no compilan
 func New(d Deps) (*Server, error) {
+	if d.Logger == nil {
+		d.Logger = slog.Default()
+	}
 	r, err := newRenderer()
 	if err != nil {
 		return nil, err

@@ -22,6 +22,7 @@ func newTestServer(t *testing.T) (*Server, *auth.Service) {
 	a := auth.NewService(auth.NewMemoryUserStore(), auth.NewMemorySessionStore(), time.Hour)
 	s, err := New(Deps{
 		Auth:   a,
+		Hub:    NewHub(quietLogger()),
 		Stream: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "STREAM "+r.URL.Path) }),
 		Ready:  func(context.Context) error { return nil },
 		Logger: quietLogger(),
@@ -261,5 +262,33 @@ func TestHealthz_NoFiltraElError(t *testing.T) {
 	}
 	if body := strings.TrimSpace(rec.Body.String()); body != "not ready" {
 		t.Fatalf("healthz no debe filtrar detalles internos (DSN, host): %q", body)
+	}
+}
+
+func TestEventsProtegido(t *testing.T) {
+	s, _ := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/events", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/events sin sesión: %d", rec.Code)
+	}
+}
+
+func TestNew_LoggerNilNoPanic(t *testing.T) {
+	a := auth.NewService(auth.NewMemoryUserStore(), auth.NewMemorySessionStore(), time.Hour)
+	s, err := New(Deps{
+		Auth:   a,
+		Hub:    NewHub(quietLogger()),
+		Stream: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		Ready:  func(context.Context) error { return errors.New("no listo") },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	// healthz loguea el error: sin logger por defecto esto paniquearía.
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d", rec.Code)
 	}
 }

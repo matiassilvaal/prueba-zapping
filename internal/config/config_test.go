@@ -41,10 +41,13 @@ func TestLoad_Overrides(t *testing.T) {
 
 func TestLoad_Errores(t *testing.T) {
 	cases := map[string]map[string]string{
-		"falta DATABASE_URL": {},
-		"puerto inválido":    {"DATABASE_URL": "x", "PORT": "abc"},
-		"ttl inválido":       {"DATABASE_URL": "x", "SESSION_TTL": "mañana"},
-		"nivel inválido":     {"DATABASE_URL": "x", "LOG_LEVEL": "loud"},
+		"falta DATABASE_URL":     {},
+		"puerto inválido":        {"DATABASE_URL": "x", "PORT": "abc"},
+		"ttl inválido":           {"DATABASE_URL": "x", "SESSION_TTL": "mañana"},
+		"nivel inválido":         {"DATABASE_URL": "x", "LOG_LEVEL": "loud"},
+		"db max conns inválido":  {"DATABASE_URL": "x", "DB_MAX_CONNS": "cero"},
+		"cookie secure inválido": {"DATABASE_URL": "x", "COOKIE_SECURE": "quizás"},
+		"puerto fuera de rango":  {"DATABASE_URL": "x", "PORT": "70000"},
 	}
 	for name, env := range cases {
 		t.Run(name, func(t *testing.T) {

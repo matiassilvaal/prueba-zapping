@@ -199,3 +199,22 @@ func TestService_PrefetchFallidoNoBloqueaElTick(t *testing.T) {
 		t.Fatalf("recuperación: %+v", w)
 	}
 }
+
+func TestService_CancelarSuscripcion(t *testing.T) {
+	tl := testTimeline(t)
+	clock := newFakeClock(time.Unix(0, 0))
+	svc := NewService(tl, memLoader(nil), clock, quietLogger())
+	events, cancelSub := svc.Subscribe()
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go svc.Run(ctx)
+	waitWindow(t, events)
+
+	cancelSub()
+	clock.Advance(10 * time.Second)
+	select {
+	case w := <-events:
+		t.Fatalf("se recibió la ventana %d tras cancelar la suscripción", w.MediaSequence)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
