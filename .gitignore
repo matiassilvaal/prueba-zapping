@@ -1,6 +1,6 @@
 # Binarios y artefactos
 /bin/
-/dist/
+/dist*/
 *.tar
 *.zip
 
