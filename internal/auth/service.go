@@ -77,7 +77,10 @@ func (s *Service) Register(ctx context.Context, in RegistrationInput) (User, str
 		return User{}, "", err
 	}
 	token, err := s.openSession(ctx, u.ID)
-	return u, token, err
+	if err != nil {
+		return User{}, "", err
+	}
+	return u, token, nil
 }
 
 // Valida credenciales y abre una sesión
@@ -110,7 +113,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (User, stri
 		return User{}, "", ErrInvalidCredentials
 	}
 	token, err := s.openSession(ctx, u.ID)
-	return u, token, err
+	if err != nil {
+		return User{}, "", err
+	}
+	return u, token, nil
 }
 
 // Cierra una sesión en la persistencia y en la caché

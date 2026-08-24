@@ -89,6 +89,32 @@ func TestService_SesionExpirada(t *testing.T) {
 	}
 }
 
+// failingSessionStore fuerza el fallo de Create para probar la rama de error
+// de openSession.
+type failingSessionStore struct {
+	SessionStore
+	err error
+}
+
+func (f failingSessionStore) Create(context.Context, Session) error { return f.err }
+
+func TestService_ErrorAlAbrirSesionNoDevuelveUsuario(t *testing.T) {
+	ctx := context.Background()
+	boom := errors.New("db caída")
+	svc := NewService(NewMemoryUserStore(), failingSessionStore{NewMemorySessionStore(), boom}, time.Hour)
+
+	u, token, err := svc.Register(ctx, RegistrationInput{"Ana", "ana@example.com", "secreto123"})
+	if !errors.Is(err, boom) || u.ID != 0 || u.Email != "" || token != "" {
+		t.Fatalf("registro con error debía devolver cero valores: %+v %q %v", u, token, err)
+	}
+
+	// El usuario quedó creado en el store; el login también falla al abrir sesión.
+	u, token, err = svc.Login(ctx, "ana@example.com", "secreto123")
+	if !errors.Is(err, boom) || u.ID != 0 || u.Email != "" || token != "" {
+		t.Fatalf("login con error debía devolver cero valores: %+v %q %v", u, token, err)
+	}
+}
+
 func TestService_BcryptAcotado(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService()
