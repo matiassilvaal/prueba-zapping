@@ -89,6 +89,36 @@ func TestService_SesionExpirada(t *testing.T) {
 	}
 }
 
+func TestService_BcryptAcotado(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService()
+	svc.bcryptSem = make(chan struct{}, 1)
+
+	// Con el único cupo ocupado, login y registro esperan el semáforo y
+	// abortan cuando el contexto vence, sin ejecutar bcrypt.
+	svc.bcryptSem <- struct{}{}
+	timeoutCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	if _, _, err := svc.Login(timeoutCtx, "nadie@example.com", "secreto123"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("login con el semáforo lleno debía vencer por contexto: %v", err)
+	}
+	if _, _, err := svc.Register(timeoutCtx, RegistrationInput{"Ana", "ana@example.com", "secreto123"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("registro con el semáforo lleno debía vencer por contexto: %v", err)
+	}
+
+	// Liberado el cupo, el flujo completo funciona y devuelve el cupo al salir.
+	<-svc.bcryptSem
+	if _, _, err := svc.Register(ctx, RegistrationInput{"Ana", "ana@example.com", "secreto123"}); err != nil {
+		t.Fatalf("registro tras liberar el semáforo: %v", err)
+	}
+	if _, _, err := svc.Login(ctx, "ana@example.com", "secreto123"); err != nil {
+		t.Fatalf("login tras liberar el semáforo: %v", err)
+	}
+	if len(svc.bcryptSem) != 0 {
+		t.Fatalf("el semáforo debía quedar libre, tiene %d cupos tomados", len(svc.bcryptSem))
+	}
+}
+
 func TestService_HashDummyPrecalculado(t *testing.T) {
 	svc := newTestService()
 	if len(svc.dummyHash) == 0 {

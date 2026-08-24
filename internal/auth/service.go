@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,7 +23,8 @@ type Service struct {
 	cache     *SessionCache
 	ttl       time.Duration
 	now       func() time.Time
-	dummyHash []byte // referencia para igualar el costo del login con email inexistente
+	dummyHash []byte        // referencia para igualar el costo del login con email inexistente
+	bcryptSem chan struct{} // acota los bcrypt concurrentes: sin tope, un bucle de POSTs satura la CPU
 }
 
 // Crea el servicio de autenticación. Precalcula el hash dummy (para que el
@@ -36,11 +38,12 @@ type Service struct {
 // @return [*Service] servicio
 func NewService(users UserStore, sessions SessionStore, ttl time.Duration) *Service {
 	s := &Service{
-		users:    users,
-		sessions: sessions,
-		cache:    NewSessionCache(cacheTTL, cacheMaxEntries),
-		ttl:      ttl,
-		now:      time.Now,
+		users:     users,
+		sessions:  sessions,
+		cache:     NewSessionCache(cacheTTL, cacheMaxEntries),
+		ttl:       ttl,
+		now:       time.Now,
+		bcryptSem: make(chan struct{}, runtime.GOMAXPROCS(0)),
 	}
 	s.dummyHash, _ = bcrypt.GenerateFromPassword([]byte("contraseña-de-relleno"), bcryptCost)
 	s.cache.now = func() time.Time { return s.now() }
@@ -65,9 +68,9 @@ func (s *Service) Register(ctx context.Context, in RegistrationInput) (User, str
 	if err != nil {
 		return User{}, "", err
 	}
-	hash, err := HashPassword(in.Password)
+	hash, err := s.hashPassword(ctx, in.Password)
 	if err != nil {
-		return User{}, "", fmt.Errorf("auth: hash de contraseña: %w", err)
+		return User{}, "", err
 	}
 	u, err := s.users.Create(ctx, in.Name, in.Email, hash)
 	if err != nil {
@@ -91,12 +94,19 @@ func (s *Service) Login(ctx context.Context, email, password string) (User, stri
 	u, err := s.users.FindByEmail(ctx, email)
 	switch {
 	case errors.Is(err, ErrNotFound):
-		CheckPassword(s.dummyHash, password) // mismo costo que un login real
+		// Mismo costo que un login real.
+		if _, err := s.checkPassword(ctx, s.dummyHash, password); err != nil {
+			return User{}, "", err
+		}
 		return User{}, "", ErrInvalidCredentials
 	case err != nil:
 		return User{}, "", err
 	}
-	if !CheckPassword(u.PasswordHash, password) {
+	ok, err := s.checkPassword(ctx, u.PasswordHash, password)
+	if err != nil {
+		return User{}, "", err
+	}
+	if !ok {
 		return User{}, "", ErrInvalidCredentials
 	}
 	token, err := s.openSession(ctx, u.ID)
@@ -155,6 +165,60 @@ func (s *Service) DeleteExpired(ctx context.Context) (int64, error) {
 //
 // @return [int] cantidad eliminada
 func (s *Service) SweepCache() int { return s.cache.Sweep() }
+
+// Reserva un cupo de bcrypt o aborta si el contexto termina antes. bcrypt
+// (costo 12) tarda cientos de milisegundos: sin tope, cada POST inválido a
+// /login o /register consume una CPU y un bucle trivial satura el proceso
+//
+// @param [context.Context] ctx: cancelación de la espera
+//
+// @return [func()] libera el cupo (nil si err no es nil)
+// @return [error] ctx.Err() si el contexto terminó antes de obtener cupo
+func (s *Service) acquireBcrypt(ctx context.Context) (func(), error) {
+	select {
+	case s.bcryptSem <- struct{}{}:
+		return func() { <-s.bcryptSem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Genera el hash bcrypt de una contraseña respetando el cupo de concurrencia
+//
+// @param [context.Context] ctx: cancelación
+// @param [string] password: contraseña en claro
+//
+// @return [[]byte] hash
+// @return [error] ctx.Err() sin cupo, o error de bcrypt
+func (s *Service) hashPassword(ctx context.Context, password string) ([]byte, error) {
+	release, err := s.acquireBcrypt(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	hash, err := HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("auth: hash de contraseña: %w", err)
+	}
+	return hash, nil
+}
+
+// Comprueba una contraseña contra su hash respetando el cupo de concurrencia
+//
+// @param [context.Context] ctx: cancelación
+// @param [[]byte] hash: hash almacenado
+// @param [string] password: contraseña en claro
+//
+// @return [bool] true si coincide
+// @return [error] ctx.Err() si no se obtuvo cupo
+func (s *Service) checkPassword(ctx context.Context, hash []byte, password string) (bool, error) {
+	release, err := s.acquireBcrypt(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	return CheckPassword(hash, password), nil
+}
 
 // Crea y persiste una sesión nueva para un usuario
 //
