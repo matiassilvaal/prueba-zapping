@@ -116,12 +116,14 @@ func run() error {
 		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 
-	// Goroutines de fondo.
+	// Goroutines de fondo. El hub se suscribe antes de arrancar el worker para
+	// que reciba la primera ventana por contrato y no por el timing del primer
+	// tick (hoy tarda porque lee de disco, pero eso es un accidente).
 	errCh := make(chan error, 2)
-	go func() { errCh <- streamSvc.Run(ctx) }()
 	events, unsubscribe := streamSvc.Subscribe()
 	defer unsubscribe()
 	go hub.Run(ctx, events)
+	go func() { errCh <- streamSvc.Run(ctx) }()
 	go sessionJanitor(ctx, authSvc, logger)
 	go func() {
 		logger.Info("servidor HTTP escuchando", "addr", srv.Addr)
