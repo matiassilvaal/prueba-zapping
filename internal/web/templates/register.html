@@ -1,0 +1,26 @@
+{{define "content"}}
+<section class="card card--form">
+  <h1>Crear cuenta</h1>
+  <p class="muted">Regístrate para ver el livestream.</p>
+  {{with .Error}}<p class="alert" role="alert">{{.}}</p>{{end}}
+  <form method="post" action="/register" novalidate>
+    <label class="field">
+      <span>Nombre</span>
+      <input type="text" name="name" value="{{.Form.name}}" maxlength="100" autocomplete="name" required>
+      {{with .Errors.name}}<small class="field-error">{{.}}</small>{{end}}
+    </label>
+    <label class="field">
+      <span>Email</span>
+      <input type="email" name="email" value="{{.Form.email}}" autocomplete="email" required>
+      {{with .Errors.email}}<small class="field-error">{{.}}</small>{{end}}
+    </label>
+    <label class="field">
+      <span>Contraseña</span>
+      <input type="password" name="password" minlength="8" maxlength="72" autocomplete="new-password" required>
+      {{with .Errors.password}}<small class="field-error">{{.}}</small>{{end}}
+    </label>
+    <button type="submit" class="btn btn--primary">Crear cuenta</button>
+  </form>
+  <p class="muted">¿Ya tienes cuenta? <a href="/login">Inicia sesión</a></p>
+</section>
+{{end}}

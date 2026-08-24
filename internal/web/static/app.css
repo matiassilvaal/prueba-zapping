@@ -1,0 +1,84 @@
+:root {
+  --bg: #e0e5ec;
+  --text: #2f3640;
+  --muted: #6c7a89;
+  --accent: #3d5afe;
+  --danger: #d63031;
+  --live: #e84118;
+  --light: rgba(255, 255, 255, 0.9);
+  --dark: rgba(163, 177, 198, 0.7);
+  --radius: 20px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shell { width: min(100% - 2rem, 1100px); padding: 2rem 0; }
+
+.card {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 2rem;
+  box-shadow: 10px 10px 24px var(--dark), -10px -10px 24px var(--light);
+}
+
+.card--form { max-width: 420px; margin: 0 auto; }
+
+h1 { margin: 0 0 0.25rem; font-size: 1.6rem; }
+.muted { color: var(--muted); margin: 0.5rem 0 1rem; }
+
+.field { display: block; margin-bottom: 1rem; }
+.field span { display: block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--muted); }
+
+input {
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 0.8rem 1rem;
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+  box-shadow: inset 6px 6px 12px var(--dark), inset -6px -6px 12px var(--light);
+}
+input:focus { box-shadow: inset 6px 6px 12px var(--dark), inset -6px -6px 12px var(--light), 0 0 0 2px var(--accent); }
+
+.btn {
+  display: inline-block;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  padding: 0.85rem 1.2rem;
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  box-shadow: 6px 6px 14px var(--dark), -6px -6px 14px var(--light);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:active { box-shadow: inset 6px 6px 12px var(--dark), inset -6px -6px 12px var(--light); transform: none; }
+.btn--primary { color: var(--accent); }
+.btn--ghost { width: auto; padding: 0.5rem 1rem; font-size: 0.9rem; }
+
+.alert {
+  padding: 0.75rem 1rem;
+  border-radius: 14px;
+  color: var(--danger);
+  box-shadow: inset 4px 4px 8px var(--dark), inset -4px -4px 8px var(--light);
+}
+.field-error { display: block; margin-top: 0.35rem; color: var(--danger); font-size: 0.8rem; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
