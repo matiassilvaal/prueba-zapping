@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -80,7 +81,10 @@ func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// Middleware que registra método, ruta, status, bytes y duración de cada request
+// Middleware que registra método, ruta, status, bytes y duración de cada
+// request. Los éxitos de alto volumen y baja señal (/healthz cada 10 s por el
+// HEALTHCHECK, un segmento por espectador cada ~10 s) van a Debug para no
+// inundar el log; sus errores siguen en Info
 //
 // @param [*slog.Logger] logger: logger
 //
@@ -95,7 +99,11 @@ func Logging(logger *slog.Logger) func(http.Handler) http.Handler {
 			if status == 0 {
 				status = http.StatusOK // el handler no escribió: net/http responde 200
 			}
-			logger.Info("request",
+			level := slog.LevelInfo
+			if status < 400 && (r.URL.Path == "/healthz" || strings.HasPrefix(r.URL.Path, "/stream/")) {
+				level = slog.LevelDebug
+			}
+			logger.Log(r.Context(), level, "request",
 				"method", r.Method, "path", r.URL.Path, "status", status,
 				"bytes", sw.bytes, "duration", time.Since(start), "remote", r.RemoteAddr)
 		})
