@@ -81,6 +81,34 @@ func TestHandler_Segmento(t *testing.T) {
 	}
 }
 
+// deadlineRecorder registra el write deadline que fija el handler vía
+// http.ResponseController.
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error {
+	d.deadline = t
+	return nil
+}
+
+func TestHandler_FijaWriteDeadline(t *testing.T) {
+	// El servidor corre con WriteTimeout 0 por el SSE: sin un deadline por
+	// respuesta, un cliente que lee a goteo retendría la conexión sin límite.
+	h := NewHandler(runningService(t))
+	for _, path := range []string{"/playlist.m3u8", "/a.ts"} {
+		rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != 200 {
+			t.Fatalf("%s: status %d", path, rec.Code)
+		}
+		if rec.deadline.IsZero() {
+			t.Errorf("%s: el handler no fijó un write deadline", path)
+		}
+	}
+}
+
 func TestHandler_PlaylistIfNoneMatchLista(t *testing.T) {
 	h := NewHandler(runningService(t))
 	req := httptest.NewRequest("GET", "/playlist.m3u8", nil)

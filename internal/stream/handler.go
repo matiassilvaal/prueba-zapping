@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// writeTimeout limita cuánto puede tardar la escritura de una respuesta del
+// stream. El servidor corre con WriteTimeout 0 (las conexiones SSE son de
+// larga duración), así que sin este deadline por respuesta un cliente que lee
+// a goteo retendría la conexión y su goroutine indefinidamente.
+const writeTimeout = 30 * time.Second
+
 type handler struct {
 	svc *Service
 }
@@ -37,6 +43,7 @@ func (h *handler) servePlaylist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "el stream todavía no está disponible", http.StatusServiceUnavailable)
 		return
 	}
+	setWriteDeadline(w)
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("ETag", snap.ETag)
@@ -54,8 +61,18 @@ func (h *handler) serveSegment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	setWriteDeadline(w)
 	w.Header().Set("Content-Type", "video/mp2t")
 	w.Header().Set("Cache-Control", "private, max-age=3600, immutable")
 	w.Header().Set("ETag", strconv.Quote(name))
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
+}
+
+// Fija el write deadline de la respuesta. Best-effort: si el writer no lo
+// soporta (p. ej. httptest.ResponseRecorder) se ignora; los middlewares lo
+// exponen vía Unwrap
+//
+// @param [http.ResponseWriter] w: respuesta
+func setWriteDeadline(w http.ResponseWriter) {
+	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(writeTimeout))
 }
