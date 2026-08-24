@@ -89,8 +89,8 @@ func run() error {
 		Stream: stream.NewHandler(streamSvc),
 		Hub:    hub,
 		Ready: func(ctx context.Context) error {
-			if streamSvc.Snapshot() == nil {
-				return errors.New("el stream todavía no publicó su primera ventana")
+			if err := streamSvc.Ready(); err != nil {
+				return err
 			}
 			return pool.Ping(ctx)
 		},

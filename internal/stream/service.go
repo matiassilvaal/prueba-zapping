@@ -2,6 +2,8 @@ package stream
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -141,6 +143,25 @@ func (s *Service) publish(w Window) error {
 //
 // @return [*Snapshot] nil hasta el primer tick
 func (s *Service) Snapshot() *Snapshot { return s.snapshot.Load() }
+
+// Disponibilidad del stream para healthchecks: exige un snapshot publicado y
+// fresco. Si publish falla de forma persistente el worker conserva el snapshot
+// anterior; sin este chequeo el healthcheck quedaría en verde con los players
+// congelados. Se toleran 2×target de retraso sobre NextTick antes de declarar
+// el estancamiento
+//
+// @return [error] nil si el stream está publicando con normalidad
+func (s *Service) Ready() error {
+	snap := s.snapshot.Load()
+	if snap == nil {
+		return errors.New("stream: todavía no se publicó la primera ventana")
+	}
+	grace := 2 * time.Duration(s.timeline.TargetDuration()) * time.Second
+	if delay := s.clock.Now().Sub(snap.Window.NextTick); delay > grace {
+		return fmt.Errorf("stream: estancado: %s sin publicar un tick", delay.Round(time.Second))
+	}
+	return nil
+}
 
 // Bytes de un segmento si pertenece a la ventana vigente (más gracia y prefetch)
 //

@@ -200,6 +200,45 @@ func TestService_PrefetchFallidoNoBloqueaElTick(t *testing.T) {
 	}
 }
 
+func TestService_Ready(t *testing.T) {
+	tl := testTimeline(t) // a b c d (10,10,10,4); target 10s
+	clock := newFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	svc := NewService(tl, memLoader(nil), clock, quietLogger())
+
+	if err := svc.Ready(); err == nil {
+		t.Fatal("sin snapshot debía reportar no listo")
+	}
+
+	epoch := clock.Now()
+	if err := svc.publish(tl.WindowAt(epoch, clock.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Ready(); err != nil {
+		t.Fatalf("recién publicado debía estar listo: %v", err)
+	}
+
+	// El snapshot de k=0 tiene NextTick en epoch+10s; un retraso menor que el
+	// doble del target duration se tolera (el tick puede demorarse un poco).
+	clock.Advance(25 * time.Second)
+	if err := svc.Ready(); err != nil {
+		t.Fatalf("retraso de 15s con target 10s debía tolerarse: %v", err)
+	}
+
+	// Más de 2×target sin publicar: el stream está estancado.
+	clock.Advance(10 * time.Second)
+	if err := svc.Ready(); err == nil {
+		t.Fatal("35s sin tick con target 10s debía reportar estancamiento")
+	}
+
+	// Un tick nuevo recupera la disponibilidad.
+	if err := svc.publish(tl.WindowAt(epoch, clock.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Ready(); err != nil {
+		t.Fatalf("tras recuperarse debía estar listo: %v", err)
+	}
+}
+
 func TestService_CancelarSuscripcion(t *testing.T) {
 	tl := testTimeline(t)
 	clock := newFakeClock(time.Unix(0, 0))
