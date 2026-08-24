@@ -223,6 +223,19 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
 - **Tests agregados**: `/events` sin sesión → 401; descarte de eventos a clientes SSE lentos (prometido en la spec §11); cancelación de suscripción del stream; `DB_MAX_CONNS`/`COOKIE_SECURE`/`PORT` inválidos en config; `web.New` con logger nil usa `slog.Default()`; el helper `readEvent` corta a los 3 s de verdad (antes un evento ausente colgaba el paquete entero).
 - **Nota de auditoría**: el texto de D-13 (C1, C2, C4) y de Q-4 se actualizó en esas mismas entradas para reflejar el comportamiento vigente; esta entrada registra el porqué de cada cambio.
 
+### D-24. Segunda revisión integral: endurecimiento (2026-08-24)
+
+- **Contexto**: revisión completa del repositorio (independiente de D-23) buscando refactors, código subóptimo y bugs plausibles en operación normal. No se encontraron bugs críticos ni algoritmos O(N²) en rutas calientes; los hallazgos fueron de endurecimiento y se aplicaron en 10 commits atómicos con TDD (test en rojo antes de cada fix de comportamiento).
+- **Endurecimiento**:
+  - `healthz` detecta el stream estancado: `stream.Service.Ready()` exige snapshot publicado **y fresco** (tolerancia 2×`TARGETDURATION` sobre `NextTick`). Antes, si `publish` fallaba de forma persistente (volumen desmontado, archivo borrado) se conservaba el snapshot viejo para siempre y el healthcheck de Docker seguía en verde con los players congelados.
+  - bcrypt acotado: semáforo con `GOMAXPROCS` cupos alrededor de `HashPassword`/`CheckPassword` (incluido el hash dummy). Con costo 12, cada POST inválido a `/login` o `/register` cuesta cientos de ms de CPU; sin tope, un bucle trivial saturaba los cores y facilitaba fuerza bruta. La espera respeta la cancelación del contexto. Se eligió el semáforo (y no un rate-limit por IP) por simplicidad: acota el daño total sin estado por cliente.
+  - Deadline de escritura de 30 s por respuesta en playlist y segmentos vía `http.ResponseController` (el `statusWriter` ya exponía `Unwrap`). El servidor corre con `WriteTimeout: 0` por el SSE; sin esto, un cliente leyendo a goteo retenía conexión y goroutine sin límite.
+  - `SessionCache.Put` barre las entradas vencidas antes de rechazar cuando la caché está llena: una caché llena de sesiones muertas dejaba a los logins nuevos pegando a Postgres hasta el próximo sweep periódico.
+  - Migraciones con timeout de 30 s en el arranque (`pg_advisory_lock` espera indefinidamente si otra réplica quedó colgada); `parseExtInf` rechaza `NaN`/`Inf` explícitamente; índice único sobre `lower(email)` (migración `0002`) como cinturón y tirantes de la normalización en la app.
+- **Refactors**: `Register`/`Login` devuelven cero valores junto a un error (antes filtraban el `User` con hash si `openSession` fallaba); condición muerta eliminada en `cacheNames`.
+- **Tests agregados**: estancamiento y recuperación de `Ready`; semáforo de bcrypt (contexto vencido + liberación de cupos); sweep inline de la caché; duplicado de email con otras mayúsculas contra Postgres real; e2e de `/events` autenticado a través de `Recover → Logging → CSRF` leyendo el evento `window` inicial (fija que `statusWriter` preserva `Flush` en el flujo real).
+- **Límite conocido y aceptado**: una conexión `/events` abierta sobrevive al logout (la autenticación es al conectar, comportamiento estándar de SSE). No expone video —solo metadatos de ventana y conteo de espectadores— y la conexión muere al recargar o navegar; no se agrega revalidación por evento.
+
 ---
 
 ## Preguntas abiertas y respuestas
