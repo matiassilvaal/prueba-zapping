@@ -16,6 +16,12 @@ const (
 	clientBuffer      = 4
 	keepaliveInterval = 15 * time.Second
 	viewersDebounce   = 250 * time.Millisecond
+
+	// El servidor corre con WriteTimeout 0 (SSE es de larga duración), así que
+	// cada escritura fija su propio deadline: sin él, un cliente que deja de
+	// leer sin cerrar el socket bloquearía Write hasta que el kernel agote las
+	// retransmisiones, reteniendo goroutine y conexión, y demorando el Shutdown
+	writeTimeout = 30 * time.Second
 )
 
 type segmentEvent struct {
@@ -121,9 +127,14 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
+	// Cada escritura exitosa empuja el deadline hacia adelante; el keepalive
+	// (cada 15 s) mantiene viva una conexión sana con margen de sobra.
+	rc := http.NewResponseController(w)
+
 	ch, initial := h.add()
 	defer h.remove(ch)
 	if initial != nil {
+		rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 		w.Write(initial)
 	}
 	flusher.Flush()
@@ -138,11 +149,13 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return // el hub cerró el canal durante el apagado
 			}
+			rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if _, err := w.Write(msg); err != nil {
 				return
 			}
 			flusher.Flush()
 		case <-ticker.C:
+			rc.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
 				return
 			}
