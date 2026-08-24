@@ -43,6 +43,7 @@ type Hub struct {
 	mu      sync.Mutex
 	clients map[chan []byte]struct{}
 	last    *stream.Window
+	closed  bool // true tras cancelarse Run: no se aceptan clientes nuevos
 }
 
 // Crea el hub
@@ -54,7 +55,9 @@ func NewHub(logger *slog.Logger) *Hub {
 	return &Hub{logger: logger, clients: make(map[chan []byte]struct{})}
 }
 
-// Consume las ventanas publicadas por el stream y las reenvía a los clientes
+// Consume las ventanas publicadas por el stream y las reenvía a los clientes.
+// Al cancelarse el contexto cierra los canales de todos los clientes, de modo
+// que las conexiones SSE terminan y el apagado del servidor no espera la gracia
 //
 // @param [context.Context] ctx: cancelación
 // @param [<-chan stream.Window] events: canal de stream.Service.Subscribe
@@ -62,6 +65,16 @@ func (h *Hub) Run(ctx context.Context, events <-chan stream.Window) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Cierre cooperativo: se cierran los canales para que cada
+			// ServeHTTP termine; sin esto, http.Server.Shutdown esperaría
+			// la gracia completa mientras haya un espectador conectado.
+			h.mu.Lock()
+			h.closed = true
+			for ch := range h.clients {
+				close(ch)
+				delete(h.clients, ch)
+			}
+			h.mu.Unlock()
 			return
 		case w := <-events:
 			h.mu.Lock()
@@ -119,7 +132,10 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				return // el hub cerró el canal durante el apagado
+			}
 			if _, err := w.Write(msg); err != nil {
 				return
 			}
@@ -133,14 +149,20 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Registra un cliente y avisa a todos el nuevo conteo de espectadores
+// Registra un cliente y avisa a todos el nuevo conteo de espectadores.
+// Tras el apagado del hub devuelve un canal ya cerrado
 //
-// @return [chan []byte] canal del cliente
+// @return [chan []byte] canal del cliente (cerrado si el hub ya se apagó)
 // @return [[]byte] evento window inicial (nil si aún no hay ventana)
 func (h *Hub) add() (chan []byte, []byte) {
-	ch := make(chan []byte, clientBuffer)
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.closed {
+		ch := make(chan []byte)
+		close(ch)
+		return ch, nil
+	}
+	ch := make(chan []byte, clientBuffer)
 	h.clients[ch] = struct{}{}
 	var initial []byte
 	if h.last != nil {

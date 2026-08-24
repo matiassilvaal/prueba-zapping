@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,5 +104,35 @@ func TestHub_ClienteNuevoRecibeUltimaVentana(t *testing.T) {
 	defer resp.Body.Close()
 	if data := readEvent(t, bufio.NewScanner(resp.Body), "window"); !strings.Contains(data, `"sequence":9`) {
 		t.Fatalf("ventana inicial: %s", data)
+	}
+}
+
+func TestHub_CierraClientesAlApagar(t *testing.T) {
+	hub := NewHub(quietLogger())
+	events := make(chan stream.Window)
+	ctx, cancel := context.WithCancel(context.Background())
+	go hub.Run(ctx, events)
+
+	srv := httptest.NewServer(hub)
+	defer srv.Close()
+	reqCtx, cancelReq := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelReq()
+	req, _ := http.NewRequestWithContext(reqCtx, "GET", srv.URL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	for i := 0; i < 50 && hub.Viewers() != 1; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel() // apagado del servicio: el hub debe cerrar la conexión, no el cliente
+	done := make(chan struct{})
+	go func() { io.Copy(io.Discard, resp.Body); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("el handler SSE no terminó al cancelar el contexto del hub")
 	}
 }
