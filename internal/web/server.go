@@ -54,6 +54,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) routes() {
 	static, _ := fs.Sub(staticFS, "static")
 	s.mux.Handle("GET /static/", cacheControl("public, max-age=86400", http.StripPrefix("/static/", http.FileServerFS(static))))
+	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /{$}", s.root)
 	s.mux.HandleFunc("GET /register", s.registerForm)
 	s.mux.HandleFunc("POST /register", s.registerSubmit)
@@ -151,6 +152,19 @@ func (s *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.SetSessionCookie(w, token, s.deps.SessionTTL, s.deps.CookieSecure)
 	http.Redirect(w, r, "/player", http.StatusSeeOther)
+}
+
+// Responde 200 si el stream y la base de datos están listos; 503 si no
+//
+// @param [http.ResponseWriter] w: respuesta
+// @param [*http.Request] r: request
+func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
+	if err := s.deps.Ready(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte("ok"))
 }
 
 // Redirige la raíz al player o al login según haya sesión

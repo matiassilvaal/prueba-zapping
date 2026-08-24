@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -204,5 +205,20 @@ func TestPlayerYStreamProtegidos(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 || rec.Body.String() != "STREAM /playlist.m3u8" {
 		t.Fatalf("stream con sesión: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHealthz(t *testing.T) {
+	s, _ := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	s.deps.Ready = func(context.Context) error { return errors.New("stream no listo") }
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d", rec.Code)
 	}
 }
