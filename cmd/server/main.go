@@ -56,7 +56,11 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
-	applied, err := db.Migrate(ctx, pool, migrations.FS)
+	// Con timeout: pg_advisory_lock espera indefinidamente si otra réplica
+	// quedó colgada con el lock tomado; el arranque no debe hacerlo.
+	migCtx, cancelMig := context.WithTimeout(ctx, 30*time.Second)
+	applied, err := db.Migrate(migCtx, pool, migrations.FS)
+	cancelMig()
 	if err != nil {
 		return err
 	}
