@@ -117,10 +117,9 @@ func (t *Timeline) cacheNames(k uint64) (required, prefetch []string) {
 		seen[name] = struct{}{}
 		required = append(required, name)
 	}
-	if name := t.segment(last + 1).Name; name != "" {
-		if _, dup := seen[name]; !dup {
-			prefetch = append(prefetch, name)
-		}
+	name := t.segment(last + 1).Name
+	if _, dup := seen[name]; !dup {
+		prefetch = append(prefetch, name)
 	}
 	return required, prefetch
 }
