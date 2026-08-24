@@ -375,3 +375,32 @@ Cota resultante: 5 x 13 MB ~ 66 MB fijos, independiente del número de usuarios.
 | `Subscribe`/`broadcast` (canales) | hub SSE, pocos suscriptores | "avísame cuando cambie" | un envío no bloqueante por suscriptor, una vez por tick |
 
 El test `TestService_SuscriptorLentoNoBloquea` verifica exactamente esto: un suscriptor que nunca lee termina con 1 evento en el buffer mientras el worker avanzó 3 ticks sin bloquearse.
+
+### Q-6. ¿Para qué usamos el tag `EXT-X-DISCONTINUITY`? (explicación simple)
+
+Cada segmento trae adentro sus propias marcas de tiempo (PTS): `segment0` dice "soy los segundos 1-11", `segment1` "soy los 11-21"... y `segment63` termina cerca del segundo 636. El player usa esas marcas para pegar los segmentos y mantener audio/video sincronizados, asumiendo que el tiempo siempre avanza.
+
+Cuando el loop da la vuelta, después de `segment63` (~seg 636) servimos `segment0` (~seg 1): para el player el tiempo saltó **hacia atrás** 635 segundos, y sin aviso lo interpreta como datos corruptos (se congela, salta o corta el audio). `#EXT-X-DISCONTINUITY`, puesto en la playlist justo antes de `segment0`, le avisa: "lo que viene empieza una línea de tiempo nueva; resetea tu reloj interno y sigue". Analogía: el corte a comerciales en TV, nadie espera que el comercial continúe los timestamps del programa.
+
+Es el único lugar donde hace falta porque los 64 segmentos entre sí son PTS-continuos (P-1); el salto ocurre solo en el cruce fin → inicio, una vez por vuelta (~10.5 min).
+
+### Q-7. ¿Qué pasa con el segmento de 4.566667 s? ¿Afecta que `TARGETDURATION` sea 10?
+
+**El tick es variable, no fijo.** El worker duerme hasta que el segmento al frente de la ventana termina de emitirse. Con `segment63` al frente (secuencia 63), el siguiente tick llega a los 4.566667 s en lugar de 10; la playlist declara su duración real en `#EXTINF:4.566667,` y el player lo reproduce completo sin notar nada. Si el tick fuera fijo de 10 s, cada vuelta publicaría 634.57 s de video en 640 s de reloj: 5.4 s de atraso por vuelta y corte por buffer vacío en ~1 hora (por eso D-9). Cubierto por `TestWindowAt/tick_corto_de_4s`.
+
+**`TARGETDURATION` es un techo, no una promesa exacta**: "ningún segmento dura más de 10 s". Un segmento más corto es legal; la duración real va en su `#EXTINF`. El player usa el target principalmente como ritmo de repregunta de la playlist; si un cliente repregunta un poco tarde respecto del tick corto y pide un segmento recién salido, lo cubre el segmento de gracia (Q-4). Lo que sí rompería players es lo inverso (target menor que un segmento real); por eso se calcula como techo de la duración máxima y nunca cambia.
+
+### Q-8. ¿Para qué sirve `EXT-X-DISCONTINUITY-SEQUENCE:0`? ¿Alguna vez cambia?
+
+Es el contador de discontinuidades que **ya desaparecieron** de la playlist. Un player que se conecta tarde solo ve la ventana de 3; necesita saber cuántos saltos de línea de tiempo hubo antes para ubicar lo que ve dentro de la línea de tiempo global y no confundirse entre recargas consecutivas (RFC 8216 §4.3.3.3).
+
+Sí cambia, una vez por vuelta:
+
+| Momento | Estado del tag | Valor |
+|---|---|---|
+| Secuencias 0-63 | sin tag o visible | 0 |
+| Secuencia 64 | tag al frente, aún visible | 0 |
+| Secuencia 65 | el tag salió de la ventana | 1 |
+| Secuencia 129 (segunda vuelta) | ídem | 2 |
+
+En el código es `(k-1)/N` en `WindowAt`, verificado por los tests `sale_el_tag_de_discontinuidad` y `segunda_discontinuidad_removida`. Se emite siempre (incluso en 0) porque es válido según el RFC y más simple que agregarla condicionalmente. En el panel del player, el contador "Discontinuidades" sube en 1 un tick después de cada vuelta.
