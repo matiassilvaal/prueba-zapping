@@ -79,10 +79,10 @@ Formato:
 
 ### D-10. Discontinuidad solo en el cruce 63 -> 0
 
-- **Decisión**: `#EXT-X-DISCONTINUITY` se emite antes de `segment0.ts` cuando la ventana cruza el final; `#EXT-X-DISCONTINUITY-SEQUENCE` se incrementa cuando ese tag sale de la ventana (RFC 8216 §4.3.3.3). `EXT-X-MEDIA-SEQUENCE` crece monótonamente y nunca se reinicia.
+- **Decisión**: `#EXT-X-DISCONTINUITY` se emite antes de `segment0.ts` cuando la ventana cruza el final; `#EXT-X-DISCONTINUITY-SEQUENCE` se incrementa cuando ese tag sale de la ventana ([RFC 8216, sección 4.3.3.3](https://datatracker.ietf.org/doc/html/rfc8216#section-4.3.3.3)). `EXT-X-MEDIA-SEQUENCE` crece monótonamente y nunca se reinicia.
 - **Razón**: los PTS son continuos entre todos los segmentos (ver P-1); el único salto hacia atrás ocurre al dar la vuelta. El segmento corto no necesita discontinuidad: basta `#EXTINF:4.566667,` (TARGETDURATION es un máximo).
 
-### D-11. Desviación consciente del RFC 8216 §6.2.2
+### D-11. Desviación consciente del [RFC 8216, sección 6.2.2](https://datatracker.ietf.org/doc/html/rfc8216#section-6.2.2)
 
 - **Contexto**: el RFC pide que, al quitar un segmento, la duración restante de la playlist sea >= 3 x target duration (implica >= 4 segmentos en ventana). La prueba exige exactamente 3.
 - **Decisión**: cumplir la prueba (3 segmentos) y documentar la desviación en el README. HLS.js lo reproduce correctamente.
@@ -96,7 +96,7 @@ Formato:
 ### D-13. Estrategia de caché y concurrencia
 
 - **C1 Playlist**: el worker renderiza el `.m3u8` a `[]byte` una vez por tick y lo publica en un `atomic.Pointer` a un snapshot inmutable; los handlers solo leen el puntero (sin locks ni allocs). Headers `Cache-Control: private, no-cache` + `ETag` = secuencia de medios -> respuestas `304` a los clientes que repreguntan. El worker no conoce a los usuarios.
-- **C2 Segmentos**: caché en RAM acotada a la ventana: los 3 activos + 1 de gracia (el recién removido sigue disponible, RFC §6.2.2) + prefetch del siguiente. Cota <= 5 x segmento más grande ~ 66 MB, evicción determinista en cada tick. Headers `Cache-Control: private, max-age=3600, immutable` + `ETag` (privado: el recurso exige sesión y no debe quedar en cachés compartidas). Descartado cachear los 480 MB completos.
+- **C2 Segmentos**: caché en RAM acotada a la ventana: los 3 activos + 1 de gracia (el recién removido sigue disponible, [RFC 8216, sección 6.2.2](https://datatracker.ietf.org/doc/html/rfc8216#section-6.2.2)) + prefetch del siguiente. Cota <= 5 x segmento más grande ~ 66 MB, evicción determinista en cada tick. Headers `Cache-Control: private, max-age=3600, immutable` + `ETag` (privado: el recurso exige sesión y no debe quedar en cachés compartidas). Descartado cachear los 480 MB completos.
 - **C2-bis (corrección de Matías)**: **no hay fallback a disco**. Es un livestream: todos los clientes ven la misma ventana. Un segmento fuera de ventana + gracia responde `404`. El único acceso a disco lo hace el worker al precargar el siguiente segmento.
 - **C3 Sesiones**: persistidas en Postgres (sobreviven reinicios, revocables) + caché en proceso con TTL corto (~30s) acotada en tamaño, para que el hot path del stream no consulte la DB en cada `.ts`. Logout invalida en DB y caché.
 - **C4 SSE**: broadcaster en memoria, un canal con buffer corto (4) por cliente; si un cliente va lento se descarta el evento, nunca se bloquea al worker. Los eventos `viewers` se coalescen (~250 ms) para que una ráfaga de altas/bajas no desplace al evento `window`. Espectadores = conexiones SSE activas. Eventos por tick: secuencia, ventana, segundos al siguiente tick, espectadores.
@@ -227,7 +227,7 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
   - `HEALTHCHECK` usa `${PORT}`: con `-e PORT=9000` el contenedor quedaba unhealthy con la app sana.
   - `docker-compose.dev.yml` pasa a ser un **override** del compose base: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build` (antes duplicaba el servicio `db` completo).
   - `go.mod` pide `go 1.26` en lugar del patch exacto 1.26.5 (evita descargas de toolchain en el build Docker); `.dockerignore` deja pasar el README de procedencia de HLS.js (D-21).
-- **Tests agregados**: `/events` sin sesión → 401; descarte de eventos a clientes SSE lentos (prometido en la spec §11); cancelación de suscripción del stream; `DB_MAX_CONNS`/`COOKIE_SECURE`/`PORT` inválidos en config; `web.New` con logger nil usa `slog.Default()`; el helper `readEvent` corta a los 3 s de verdad (antes un evento ausente colgaba el paquete entero).
+- **Tests agregados**: `/events` sin sesión → 401; descarte de eventos a clientes SSE lentos (prometido en la sección 11 de la spec); cancelación de suscripción del stream; `DB_MAX_CONNS`/`COOKIE_SECURE`/`PORT` inválidos en config; `web.New` con logger nil usa `slog.Default()`; el helper `readEvent` corta a los 3 s de verdad (antes un evento ausente colgaba el paquete entero).
 - **Nota de auditoría**: el texto de D-13 (C1, C2, C4) y de Q-4 se actualizó en esas mismas entradas para reflejar el comportamiento vigente; esta entrada registra el porqué de cada cambio.
 
 ### D-24. Segunda revisión integral: endurecimiento (2026-08-24)
@@ -343,7 +343,7 @@ segment1.ts
 segment2.ts
 ```
 
-**t = 644.57 s, secuencia 65:** el tag salió de la ventana → `DISCONTINUITY-SEQUENCE` pasa a 1 (RFC 8216 §4.3.3.3). `MEDIA-SEQUENCE` sigue creciendo, nunca vuelve a 0.
+**t = 644.57 s, secuencia 65:** el tag salió de la ventana → `DISCONTINUITY-SEQUENCE` pasa a 1 ([RFC 8216, sección 4.3.3.3](https://datatracker.ietf.org/doc/html/rfc8216#section-4.3.3.3)). `MEDIA-SEQUENCE` sigue creciendo, nunca vuelve a 0.
 
 ```m3u8
 #EXT-X-MEDIA-SEQUENCE:65
@@ -374,7 +374,7 @@ Para la secuencia `k`, la caché en RAM contiene 5 archivos:
 2. t = 20.0 s: tick; la ventana pasa a `[seg2, seg3, seg4]`.
 3. t = 20.1 s: HLS.js pide `seg1.ts`, que acaba de leer en la playlist. Sin gracia responderíamos 404 y el player entra en error fatal de red.
 
-Con muchos usuarios haciendo polling a distinto ritmo, la carrera ocurre constantemente. El RFC 8216 §6.2.2 exige que un segmento removido siga disponible "duración del segmento + duración de la playlist más larga" (>= 10 s + 30 s). Se eligió conservar **1** segmento (10 s) porque HLS.js pide el segmento milisegundos después de leer la playlist, y así la cota de RAM se mantiene baja. Ser 100 % estricto con el RFC implicaría 4 de gracia (~105 MB); es cambiar un número en `cacheNames` si se decide.
+Con muchos usuarios haciendo polling a distinto ritmo, la carrera ocurre constantemente. El [RFC 8216, sección 6.2.2](https://datatracker.ietf.org/doc/html/rfc8216#section-6.2.2) exige que un segmento removido siga disponible "duración del segmento + duración de la playlist más larga" (>= 10 s + 30 s). Se eligió conservar **1** segmento (10 s) porque HLS.js pide el segmento milisegundos después de leer la playlist, y así la cota de RAM se mantiene baja. Ser 100 % estricto con el RFC implicaría 4 de gracia (~105 MB); es cambiar un número en `cacheNames` si se decide.
 
 **Prefetch (k+3): que el tick nunca dependa del disco.** Sin prefetch, en cada tick el worker leería del disco el segmento que entra (hasta 13 MB) **antes** de publicar el snapshot; con I/O lento el tick se atrasa y los clientes agotan su buffer. Con prefetch, en el tick `k` ya se carga `k+3`, que entrará en la ventana **en el tick siguiente**: cuando llega ese momento, publicar el snapshot es un swap de punteros sin I/O. La lectura de disco ocurre 10 s antes de que alguien la necesite. El prefetch es best-effort: si su lectura falla, la ventana se publica igual y se reintenta en el tick siguiente (solo la falta de un segmento obligatorio —gracia o ventana— bloquea el tick). Beneficio extra: en el arranque se cargan 4 archivos antes del primer snapshot, verificando de paso el pipeline de carga.
 
@@ -424,7 +424,7 @@ Es el único lugar donde hace falta porque los 64 segmentos entre sí son PTS-co
 
 ### Q-8. ¿Para qué sirve `EXT-X-DISCONTINUITY-SEQUENCE:0`? ¿Alguna vez cambia?
 
-Es el contador de discontinuidades que **ya desaparecieron** de la playlist. Un player que se conecta tarde solo ve la ventana de 3; necesita saber cuántos saltos de línea de tiempo hubo antes para ubicar lo que ve dentro de la línea de tiempo global y no confundirse entre recargas consecutivas (RFC 8216 §4.3.3.3).
+Es el contador de discontinuidades que **ya desaparecieron** de la playlist. Un player que se conecta tarde solo ve la ventana de 3; necesita saber cuántos saltos de línea de tiempo hubo antes para ubicar lo que ve dentro de la línea de tiempo global y no confundirse entre recargas consecutivas ([RFC 8216, sección 4.3.3.3](https://datatracker.ietf.org/doc/html/rfc8216#section-4.3.3.3)).
 
 Sí cambia, una vez por vuelta:
 

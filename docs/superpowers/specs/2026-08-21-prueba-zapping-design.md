@@ -105,7 +105,7 @@ sin acumular estado, sin deriva. Tick efectivo = `Duration(k)`: 10s normalmente,
 4.566667s cuando sale `segment63`.
 
 `DiscontinuitySequence` cuenta los tags `EXT-X-DISCONTINUITY` que ya salieron de
-la ventana (RFC 8216 §4.3.3.3): el tag pertenece a la entrada con `n % N == 0`,
+la ventana ([RFC 8216, sección 4.3.3.3](https://datatracker.ietf.org/doc/html/rfc8216#section-4.3.3.3)): el tag pertenece a la entrada con `n % N == 0`,
 y sale cuando `k > n`.
 
 ### 4.3 Render de playlist (`playlist.go`, función pura)
@@ -130,7 +130,7 @@ segment1.ts
 `EXT-X-DISCONTINUITY-SEQUENCE` se emite siempre (vale 0 al inicio). Duraciones con
 seis decimales. Sin `EXT-X-ENDLIST` (es live). Se verifica con golden files.
 
-Desviación consciente: RFC 8216 §6.2.2 pide que la playlist conserve >= 3 × target
+Desviación consciente: [RFC 8216, sección 6.2.2](https://datatracker.ietf.org/doc/html/rfc8216#section-6.2.2) pide que la playlist conserve >= 3 × target
 duration tras remover un segmento (4 segmentos); el enunciado exige 3. Se documenta
 en el README.
 

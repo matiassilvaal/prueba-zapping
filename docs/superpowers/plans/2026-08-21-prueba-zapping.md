@@ -4548,7 +4548,7 @@ git commit -m "feat(web): página del player con HLS.js y stream protegido por s
   - `func (h *Hub) Run(ctx context.Context, events <-chan stream.Window)`
   - `func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request)`
   - `func (h *Hub) Viewers() int`
-  - Eventos SSE `window` y `viewers` con el JSON de la spec §7.3 (más `secondsToNextTick`)
+  - Eventos SSE `window` y `viewers` con el JSON de la sección 7.3 de la spec (más `secondsToNextTick`)
   - `Deps.Hub *Hub`; ruta `GET /events` (sesión, 401)
 
 - [ ] **Step 1: Escribir los tests**
@@ -5722,11 +5722,11 @@ git commit -m "feat: Dockerfile multi-stage y docker-compose de entrega y desarr
 - [ ] **Step 1: Escribir `README.md`** con estas secciones (contenido real, no índices):
 
 1. **Qué es**: una frase + captura (opcional) del player.
-2. **Arquitectura**: el diagrama de paquetes de la spec §3 y las reglas de dependencia; link a `docs/superpowers/specs/…` y `docs/DECISIONES.md`.
-3. **Cómo funciona el livestream**: reloj virtual (`publishAt(n)`), ventana de 3, discontinuidad en el cruce, `MEDIA-SEQUENCE`/`DISCONTINUITY-SEQUENCE`; ejemplo de playlist en el cruce (spec §4.3).
+2. **Arquitectura**: el diagrama de paquetes de la sección 3 de la spec y las reglas de dependencia; link a `docs/superpowers/specs/…` y `docs/DECISIONES.md`.
+3. **Cómo funciona el livestream**: reloj virtual (`publishAt(n)`), ventana de 3, discontinuidad en el cruce, `MEDIA-SEQUENCE`/`DISCONTINUITY-SEQUENCE`; ejemplo de playlist en el cruce (spec sección 4.3).
 4. **Caché y concurrencia**: snapshot atómico, set de segmentos `[k-1, k+3]` con cota ≈ 66 MB, headers, caché de sesiones TTL 30s, SSE con descarte.
-5. **Desviación del RFC 8216 §6.2.2** (D-11).
-6. **Ejecutar en desarrollo**: `docker compose -f docker-compose.dev.yml up --build`; variables de entorno (tabla de la spec §8); `go test -race ./...`; tests de integración con `TEST_DATABASE_URL`.
+5. **Desviación del [RFC 8216, sección 6.2.2](https://datatracker.ietf.org/doc/html/rfc8216#section-6.2.2)** (D-11).
+6. **Ejecutar en desarrollo**: `docker compose -f docker-compose.dev.yml up --build`; variables de entorno (tabla de la sección 8 de la spec); `go test -race ./...`; tests de integración con `TEST_DATABASE_URL`.
 7. **Prueba de carga**: obtener la cookie con `curl -c`, luego
    `go run github.com/rakyll/hey@latest -c 200 -z 30s -H "Cookie: session=<token>" http://localhost:8080/stream/playlist.m3u8` y pegar el resumen obtenido (requests/s, p99). Ejecutarla realmente y pegar los números.
 8. **Entrega**: cómo generar `dist/prueba-zapping.tar` (`make docker-save` o los dos comandos `docker`), contenido del zip.
@@ -5779,15 +5779,15 @@ git commit -m "docs: README, instructivo de instalación y cierre del registro d
 
 | Spec | Tarea |
 |---|---|
-| §2 datos de entrada, N arbitrario | 3, 4 |
-| §3 arquitectura y reglas de dependencia | 1, 16, 21 (verificables con `go list -deps ./internal/stream` sin paquetes internos) |
-| §4.1–4.6 paquete `stream` | 3, 4, 5, 6, 7, 8 |
-| §5 `auth` | 10, 11, 12, 13 |
-| §6 `db` y esquema | 14, 15 |
-| §7.1 rutas y middlewares | 16, 17, 18, 19, 21 |
-| §7.2 vistas Neumorphism, panel | 16, 18, 20 |
-| §7.3 SSE | 19, 20 |
-| §8 configuración | 9 |
-| §9 Docker y entrega | 2, 23, 24 |
-| §10 errores y observabilidad | 7 (logs de tick), 21 (logging, recover, healthz) |
-| §11 tests | en cada tarea; e2e en 22; carga en 24 |
+| Sección 2 datos de entrada, N arbitrario | 3, 4 |
+| Sección 3 arquitectura y reglas de dependencia | 1, 16, 21 (verificables con `go list -deps ./internal/stream` sin paquetes internos) |
+| Sección 4.1–4.6 paquete `stream` | 3, 4, 5, 6, 7, 8 |
+| Sección 5 `auth` | 10, 11, 12, 13 |
+| Sección 6 `db` y esquema | 14, 15 |
+| Sección 7.1 rutas y middlewares | 16, 17, 18, 19, 21 |
+| Sección 7.2 vistas Neumorphism, panel | 16, 18, 20 |
+| Sección 7.3 SSE | 19, 20 |
+| Sección 8 configuración | 9 |
+| Sección 9 Docker y entrega | 2, 23, 24 |
+| Sección 10 errores y observabilidad | 7 (logs de tick), 21 (logging, recover, healthz) |
+| Sección 11 tests | en cada tarea; e2e en 22; carga en 24 |

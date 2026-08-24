@@ -45,7 +45,7 @@ desincronizan y el stream continúa indefinidamente.
 - `EXT-X-MEDIA-SEQUENCE` crece en 1 por cada segmento removido y nunca se reinicia.
 - Al dar la vuelta (último → primero) los PTS saltan hacia atrás, por eso se
   emite `#EXT-X-DISCONTINUITY` antes del primer segmento, y cuando ese tag sale
-  de la ventana se incrementa `#EXT-X-DISCONTINUITY-SEQUENCE` (RFC 8216 §4.3.3.3).
+  de la ventana se incrementa `#EXT-X-DISCONTINUITY-SEQUENCE` ([RFC 8216, sección 4.3.3.3](https://datatracker.ietf.org/doc/html/rfc8216#section-4.3.3.3)).
 
 Ejemplo de la playlist en el cruce (secuencia 63, tick corto):
 
@@ -96,7 +96,7 @@ maneja exclusivamente el servidor HTTP.
 
 ## Desviación consciente del RFC 8216
 
-El §6.2.2 pide conservar >= 3 × target duration al remover un segmento (implica
+La [sección 6.2.2](https://datatracker.ietf.org/doc/html/rfc8216#section-6.2.2) pide conservar >= 3 × target duration al remover un segmento (implica
 ventana de 4); el enunciado exige exactamente 3 segmentos por playlist, y eso
 es lo que se implementa. HLS.js lo reproduce sin problemas. El mismo RFC pide
 mantener disponible el segmento removido: eso sí se cumple con el segmento de
