@@ -53,8 +53,12 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) routes() {
 	static, _ := fs.Sub(staticFS, "static")
 	s.mux.Handle("GET /static/", cacheControl("public, max-age=86400", http.StripPrefix("/static/", http.FileServerFS(static))))
+	s.mux.HandleFunc("GET /{$}", s.root)
 	s.mux.HandleFunc("GET /register", s.registerForm)
 	s.mux.HandleFunc("POST /register", s.registerSubmit)
+	s.mux.HandleFunc("GET /login", s.loginForm)
+	s.mux.HandleFunc("POST /login", s.loginSubmit)
+	s.mux.HandleFunc("POST /logout", s.logout)
 }
 
 // Envuelve un handler fijando el header Cache-Control
@@ -141,4 +145,70 @@ func (s *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	auth.SetSessionCookie(w, token, s.deps.SessionTTL, s.deps.CookieSecure)
 	http.Redirect(w, r, "/player", http.StatusSeeOther)
+}
+
+// Redirige la raíz al player o al login según haya sesión
+//
+// @param [http.ResponseWriter] w: respuesta
+// @param [*http.Request] r: request
+func (s *Server) root(w http.ResponseWriter, r *http.Request) {
+	if s.isLoggedIn(r) {
+		http.Redirect(w, r, "/player", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// Muestra el formulario de login (o redirige al player si ya hay sesión)
+//
+// @param [http.ResponseWriter] w: respuesta
+// @param [*http.Request] r: request
+func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
+	if s.isLoggedIn(r) {
+		http.Redirect(w, r, "/player", http.StatusSeeOther)
+		return
+	}
+	s.render(w, http.StatusOK, "login.html", newPageData("Iniciar sesión"))
+}
+
+// Procesa el login: valida credenciales, abre sesión y redirige al player
+//
+// @param [http.ResponseWriter] w: respuesta
+// @param [*http.Request] r: request con el formulario
+func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulario inválido", http.StatusBadRequest)
+		return
+	}
+	email, password := r.PostFormValue("email"), r.PostFormValue("password")
+	_, token, err := s.deps.Auth.Login(r.Context(), email, password)
+	if err != nil {
+		data := newPageData("Iniciar sesión")
+		data.Form["email"] = email
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			data.Error = "Email o contraseña incorrectos"
+			s.render(w, http.StatusUnauthorized, "login.html", data)
+			return
+		}
+		s.deps.Logger.Error("login falló", "error", err)
+		data.Error = "No pudimos iniciar sesión. Inténtalo de nuevo."
+		s.render(w, http.StatusInternalServerError, "login.html", data)
+		return
+	}
+	auth.SetSessionCookie(w, token, s.deps.SessionTTL, s.deps.CookieSecure)
+	http.Redirect(w, r, "/player", http.StatusSeeOther)
+}
+
+// Cierra la sesión actual, borra la cookie y redirige al login
+//
+// @param [http.ResponseWriter] w: respuesta
+// @param [*http.Request] r: request
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if token := auth.TokenFromRequest(r); token != "" {
+		if err := s.deps.Auth.Logout(r.Context(), token); err != nil {
+			s.deps.Logger.Error("logout falló", "error", err)
+		}
+	}
+	auth.ClearSessionCookie(w, s.deps.CookieSecure)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="card card--form">
+  <h1>Iniciar sesión</h1>
+  <p class="muted">Entra para ver el livestream.</p>
+  {{with .Error}}<p class="alert" role="alert">{{.}}</p>{{end}}
+  <form method="post" action="/login" novalidate>
+    <label class="field">
+      <span>Email</span>
+      <input type="email" name="email" value="{{.Form.email}}" autocomplete="email" required>
+    </label>
+    <label class="field">
+      <span>Contraseña</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="btn btn--primary">Entrar</button>
+  </form>
+  <p class="muted">¿No tienes cuenta? <a href="/register">Crea una</a></p>
+</section>
+{{end}}

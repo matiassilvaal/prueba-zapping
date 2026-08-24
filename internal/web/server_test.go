@@ -98,3 +98,74 @@ func TestStatic(t *testing.T) {
 		t.Fatalf("cache-control %q", rec.Header().Get("Cache-Control"))
 	}
 }
+
+func registerAndLogin(t *testing.T, h http.Handler) *http.Cookie {
+	t.Helper()
+	rec := postForm(h, "/register", url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "password": {"secreto123"}})
+	return sessionCookie(t, rec)
+}
+
+func TestLogin(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	registerAndLogin(t, h)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/login", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Iniciar sesión") {
+		t.Fatalf("GET: %d", rec.Code)
+	}
+
+	rec = postForm(h, "/login", url.Values{"email": {"ana@example.com"}, "password": {"incorrecta"}})
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "Email o contraseña incorrectos") {
+		t.Fatalf("credenciales inválidas: %d", rec.Code)
+	}
+
+	rec = postForm(h, "/login", url.Values{"email": {"ana@example.com"}, "password": {"secreto123"}})
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/player" {
+		t.Fatalf("login ok: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	c := sessionCookie(t, rec)
+
+	req := httptest.NewRequest("GET", "/login", nil)
+	req.AddCookie(c)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/player" {
+		t.Fatalf("login con sesión debía redirigir: %d", rec.Code)
+	}
+}
+
+func TestLogoutYRaiz(t *testing.T) {
+	s, a := newTestServer(t)
+	h := s.Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
+		t.Fatalf("raíz sin sesión: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+
+	c := registerAndLogin(t, h)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(c)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Header().Get("Location") != "/player" {
+		t.Fatalf("raíz con sesión: %q", rec.Header().Get("Location"))
+	}
+
+	req = httptest.NewRequest("POST", "/logout", nil)
+	req.AddCookie(c)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
+		t.Fatalf("logout: %d", rec.Code)
+	}
+	if cleared := rec.Result().Cookies()[0]; cleared.MaxAge != -1 {
+		t.Fatalf("la cookie debía borrarse: %+v", cleared)
+	}
+	if _, err := a.Authenticate(context.Background(), c.Value); err == nil {
+		t.Fatal("la sesión debía quedar invalidada")
+	}
+}
