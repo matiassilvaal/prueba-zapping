@@ -179,6 +179,11 @@ Toda decisión, problema o respuesta que surja durante este ciclo se anota en es
   `docker run --rm -v "<repo>:/src" -w /src -v go-cache-zapping:/go golang:1.26 go test -race ./...`
 - Docker Desktop debe estar levantado; el primer arranque en frío tardó varios minutos y hubo que reiniciar el engine una vez.
 
+### P-5. Postgres local en el puerto 5432: el contenedor de desarrollo usa 5433
+
+- Al levantar `docker-compose.dev.yml` con `5432:5432`, los tests de integración fallaban con "la autentificación password falló para el usuario zapping": la máquina tiene un PostgreSQL local (12/14) escuchando en 5432 y las conexiones caían ahí en lugar del contenedor.
+- **Solución (2026-08-23)**: el servicio `db` del compose de desarrollo se publica en el host como `5433:5432`. La URL de tests pasa a ser `postgres://zapping:zapping@localhost:5433/zapping?sslmode=disable`. Dentro del contenedor `golang:1.26` (para `-race`) se usa `host.docker.internal:5433`. El `docker-compose.yml` de entrega no expone el puerto de la DB al host, así que no le afecta.
+
 ---
 
 ## Preguntas abiertas y respuestas
